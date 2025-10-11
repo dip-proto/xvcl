@@ -31,7 +31,7 @@ Supercharge your Fastly VCL with programming constructs like loops, functions, c
 
 ## Introduction
 
-xvcl is VCL transpiler that extends Fastly VCL with programming constructs that generate standard VCL code.
+xvcl is a VCL transpiler that extends Fastly VCL with programming constructs that generate standard VCL code.
 
 Think of it as a build step for your VCL: write enhanced VCL source files, run xvcl, and get clean, valid VCL output.
 
@@ -140,7 +140,7 @@ uv pip install xvcl
 
 After installation, the `xvcl` command is available globally.
 
-**No external dependencies** - uses only Python standard library.
+**No external dependencies** — uses only the Python standard library.
 
 ### Running without installation
 
@@ -161,7 +161,7 @@ This is perfect for CI/CD pipelines or one-off usage without polluting your envi
 
 ## Quick Start
 
-Create an xvcl source file (use `.xvcl` extension by convention):
+Create an xvcl source file (use the `.xvcl` extension by convention):
 
 **`hello.xvcl`:**
 
@@ -803,7 +803,7 @@ xvcl input.xvcl -o output.vcl
 | --------------- | --------------------------------------------------- |
 | `input`         | Input xvcl source file (required)                   |
 | `-o, --output`  | Output VCL file (default: replaces .xvcl with .vcl) |
-| `-I, --include` | Add include search path (repeatable)                |
+| `-I, --include` | Add an include search path (repeatable)             |
 | `--debug`       | Enable debug output with expansion traces           |
 | `--source-maps` | Add source map comments to output                   |
 | `-v, --verbose` | Verbose output (alias for --debug)                  |
@@ -943,7 +943,7 @@ jobs:
         run: falco test main.vcl
 ```
 
-Using `uvx` eliminates the need to set up Python and install xvcl separately - it's handled automatically.
+Using `uvx` eliminates the need to set up Python and install xvcl separately — it's handled automatically.
 
 **Testing compiled VCL:**
 

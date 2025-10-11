@@ -1,6 +1,6 @@
 # xvcl Quick Reference
 
-Quick reference for xvcl (Extended VCL compiler). See [README.md](README.md) for full documentation.
+Quick reference for xvcl (the Extended VCL compiler). See [README.md](README.md) for full documentation.
 
 ## Basic Usage
 
@@ -169,18 +169,18 @@ set var.a, var.b = parse("input");
 
 ## Command-Line Options
 
-| Option | Description |
-|--------|-------------|
-| `input` | Input xvcl file (required) |
-| `-o, --output` | Output VCL file |
-| `-I, --include` | Add include search path (repeatable) |
-| `--debug` | Enable debug mode |
-| `--source-maps` | Add source map comments |
-| `-v, --verbose` | Verbose output |
+| Option          | Description                             |
+| --------------- | --------------------------------------- |
+| `input`         | Input xvcl file (required)              |
+| `-o, --output`  | Output VCL file                         |
+| `-I, --include` | Add an include search path (repeatable) |
+| `--debug`       | Enable debug mode                       |
+| `--source-maps` | Add source map comments                 |
+| `-v, --verbose` | Verbose output                          |
 
 ## Common Patterns
 
-### Backend generation from list
+### Backend generation from a list
 
 ```vcl
 #const BACKENDS = ["web1", "web2", "web3"]
@@ -193,7 +193,7 @@ backend F_{{backend}} {
 #endfor
 ```
 
-### Environment-specific config
+### Environment-specific configuration
 
 ```vcl
 #const PRODUCTION = True
@@ -235,26 +235,26 @@ set var.cacheable = should_cache(req.url, req.request);
 
 ## Macros vs Functions
 
-| Use Case | Use This |
-|----------|----------|
-| Simple expression | Macro |
-| String concatenation | Macro |
-| Complex logic | Function |
-| Multiple statements | Function |
+| Use Case               | Use This |
+| ---------------------- | -------- |
+| Simple expression      | Macro    |
+| String concatenation   | Macro    |
+| Complex logic          | Function |
+| Multiple statements    | Function |
 | Multiple return values | Function |
-| Zero overhead needed | Macro |
+| No overhead required   | Macro    |
 
 ## Error Messages
 
 Common errors and solutions:
 
-| Error | Solution |
-|-------|----------|
-| Name 'X' is not defined | Check constant/variable spelling |
-| Invalid #const syntax | Use: `#const NAME TYPE = value` |
-| No matching #endfor | Add closing `#endfor` |
-| Circular include detected | Restructure includes |
-| Cannot find included file | Check path, use `-I` flag |
+| Error                     | Solution                          |
+| ------------------------- | --------------------------------- |
+| Name 'X' is not defined   | Check constant/variable spelling  |
+| Invalid #const syntax     | Use: `#const NAME TYPE = value`   |
+| No matching #endfor       | Add the closing `#endfor`         |
+| Circular include detected | Restructure the includes          |
+| Cannot find included file | Check the path; use the `-I` flag |
 
 ## Workflow
 
@@ -277,12 +277,12 @@ falco test main.vcl
 
 ## Tips
 
-- Use `.xvcl` extension for xvcl files
+- Use the `.xvcl` extension for xvcl files
 - Keep constants at the top of files
 - Comment your macros and functions
 - Use `--debug` when troubleshooting
 - Validate generated VCL with Falco
-- Version control both xvcl files and output (or just xvcl files)
+- Use version control for both xvcl files and generated output (or just the xvcl files)
 
 ---
 
