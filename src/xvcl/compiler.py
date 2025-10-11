@@ -728,8 +728,6 @@ class XVCLCompiler:
 
         # Post-process the body output to handle return statements
         for line in body_output:
-            line.strip()
-
             # Replace "return expr1, expr2;" with multiple assignments
             if re.match(r"\s*return\s+", line):
                 if func.is_tuple_return():
