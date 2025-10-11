@@ -1256,25 +1256,8 @@ class XVCLCompiler:
     def _evaluate_expression(self, expr: str, context: dict[str, Any]) -> Any:
         """Safely evaluate an expression in the given context."""
         try:
-            # Create restricted AST-based evaluation for safety
-            import ast
-            import operator
-
-            # Define allowed operators
-            bin_ops: dict[type, Any] = {
-                ast.Add: operator.add,
-                ast.Sub: operator.sub,
-                ast.Mult: operator.mul,
-                ast.Div: operator.truediv,
-                ast.FloorDiv: operator.floordiv,
-                ast.Mod: operator.mod,
-                ast.Pow: operator.pow,
-                ast.USub: operator.neg,
-                ast.UAdd: operator.pos,
-            }
-
-            # Define allowed functions
-            allowed_functions: dict[str, Any] = {
+            safe_globals = {
+                "range": range,
                 "len": len,
                 "str": str,
                 "int": int,
@@ -1284,99 +1267,32 @@ class XVCLCompiler:
                 "min": min,
                 "max": max,
                 "enumerate": enumerate,
-                "range": range,
+                # Boolean literals (both Python and C-style)
+                "True": True,
+                "False": False,
+                "true": True,
+                "false": False,
             }
 
-            def safe_eval(node: ast.AST) -> Any:
-                if isinstance(node, ast.Constant):  # Numbers, strings, booleans
-                    return node.value
-                elif isinstance(node, ast.Name):  # Variables
-                    name = node.id
-                    if name in allowed_functions:
-                        return allowed_functions[name]
-                    elif name in self.constants:
-                        return self.constants[name]
-                    elif name in context:
-                        return context[name]
-                    elif name in ["True", "False", "true", "false"]:
-                        return {"True": True, "False": False, "true": True, "false": False}[name]
-                    else:
-                        available_names = (
-                            list(allowed_functions.keys())
-                            + list(self.constants.keys())
-                            + list(context.keys())
-                        )
-                        suggestions = get_close_matches(name, available_names, n=3, cutoff=0.6)
-                        error_msg = f"Name '{name}' is not defined"
-                        if suggestions:
-                            error_msg += f"\n  Did you mean: {', '.join(suggestions)}?"
-                        error_msg += f"\n  Available: {', '.join(sorted(available_names))}"
-                        raise NameError(error_msg)
-                elif isinstance(node, ast.BinOp):  # Binary operations
-                    left = safe_eval(node.left)
-                    right = safe_eval(node.right)
-                    op = bin_ops.get(type(node.op))
-                    if op:
-                        return op(left, right)
-                    else:
-                        raise ValueError(f"Unsupported binary operation: {type(node.op)}")
-                elif isinstance(node, ast.UnaryOp):  # Unary operations
-                    operand = safe_eval(node.operand)
-                    op = bin_ops.get(type(node.op))
-                    if op:
-                        return op(operand)
-                    else:
-                        raise ValueError(f"Unsupported unary operation: {type(node.op)}")
-                elif isinstance(node, ast.Call):  # Function calls
-                    func_node = node.func
-                    if isinstance(func_node, ast.Name):
-                        func_name = func_node.id
-                        if func_name in allowed_functions:
-                            func = allowed_functions[func_name]
-                            args = [safe_eval(arg) for arg in node.args]
-                            return func(*args)
-                        else:
-                            raise NameError(f"Function '{func_name}' is not allowed")
-                    else:
-                        raise ValueError("Unsupported function call pattern")
-                elif isinstance(node, ast.List):  # List literals [1, 2, 3]
-                    return [safe_eval(elt) for elt in node.elts]
-                elif isinstance(node, ast.Compare):  # Comparison operations
-                    left = safe_eval(node.left)
-                    for op_node, comparator in zip(node.ops, node.comparators):
-                        right = safe_eval(comparator)
-                        if isinstance(op_node, ast.Eq):
-                            result = left == right
-                        elif isinstance(op_node, ast.NotEq):
-                            result = left != right
-                        elif isinstance(op_node, ast.Lt):
-                            result = left < right
-                        elif isinstance(op_node, ast.LtE):
-                            result = left <= right
-                        elif isinstance(op_node, ast.Gt):
-                            result = left > right
-                        elif isinstance(op_node, ast.GtE):
-                            result = left >= right
-                        else:
-                            raise ValueError(f"Unsupported comparison operation: {type(op_node)}")
-                        if not result:  # For chained comparisons like a < b < c
-                            return False
-                        left = right
-                    return True
-                else:
-                    raise ValueError(f"Unsupported AST node type: {type(node)}")
+            # Merge constants into context
+            eval_env = {**safe_globals, **self.constants, **context}
+            result = eval(expr, {"__builtins__": {}}, eval_env)
 
-            # Parse the expression
-            try:
-                tree = ast.parse(expr.strip(), mode="eval")
-            except SyntaxError as e:
-                raise ValueError(f"Invalid syntax in expression '{expr}': {e}")
+            return result
+        except NameError as e:
+            # Provide helpful suggestions
+            var_name = str(e).split("'")[1] if "'" in str(e) else ""
+            available_names = (
+                list(safe_globals.keys()) + list(self.constants.keys()) + list(context.keys())
+            )
+            suggestions = get_close_matches(var_name, available_names, n=3, cutoff=0.6)
 
-            return safe_eval(tree.body)
+            error_msg = f"Name '{var_name}' is not defined"
+            if suggestions:
+                error_msg += f"\n  Did you mean: {', '.join(suggestions)}?"
+            error_msg += f"\n  Available: {', '.join(sorted(available_names))}"
 
-        except NameError:
-            # Re-raise NameError as is
-            raise
+            raise NameError(error_msg)
         except Exception as e:
             raise ValueError(f"Error evaluating expression '{expr}': {e}")
 
