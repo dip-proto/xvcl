@@ -1,0 +1,251 @@
+# IPCrypt-NDX
+#
+# ipcrypt-ndx uses:
+# - AES-XTS tweakable block cipher
+# - 32-byte key (split into two 16-byte AES-128 keys)
+# - 16-byte random tweak
+# - Output: 32 bytes (tweak || ciphertext)
+
+backend test_backend {
+    .host = "127.0.0.1";
+    .port = "8080";
+}
+
+# === CONSTANTS ===
+
+# Test vectors from draft-denis-ipcrypt
+#const TEST1_KEY STRING = "0123456789abcdeffedcba98765432101032547698badcfeefcdab8967452301"
+#const TEST2_KEY STRING = "1032547698badcfeefcdab89674523010123456789abcdeffedcba9876543210"
+#const TEST3_KEY STRING = "2b7e151628aed2a6abf7158809cf4f3c3c4fcf098815f7aba6d2ae2816157e2b"
+
+# Test tweaks
+#const TEST1_TWEAK STRING = "21bd1834bc088cd2b4ecbe30b70898d7"
+#const TEST2_TWEAK STRING = "21bd1834bc088cd2b4ecbe30b70898d7"
+#const TEST3_TWEAK STRING = "21bd1834bc088cd2b4ecbe30b70898d7"
+
+# === LOOKUP TABLES ===
+
+# XOR lookup table for hex digits (256 entries: 0x0^0x0 through 0xf^0xf)
+table hex_xor STRING {
+#for a in range(16)
+#for b in range(16)
+    "{{hex(a)[2:]}}{{hex(b)[2:]}}": "{{hex(a ^ b)[2:]}}"#if not (a == 15 and b == 15)
+,#endif
+
+#endfor
+#endfor
+}
+
+# === HELPER FUNCTIONS ===
+
+# XOR two 128-bit hex strings (32 hex characters)
+#def xor_hex_128(a STRING, b STRING) -> STRING
+  #let result STRING = "";
+#for i in range(32)
+  set var.result = var.result + table.lookup(hex_xor, substr(a, {{i}}, 1) + substr(b, {{i}}, 1));
+#endfor
+  return var.result;
+#enddef
+
+# === AES-XTS IMPLEMENTATION ===
+
+# AES-XTS Encrypt for single block (128 bits)
+# Key is 32 bytes (64 hex chars, split into K1 and K2)
+# Tweak is 16 bytes (32 hex chars)
+# Block is 16 bytes (32 hex chars)
+#def aes_xts_encrypt(key STRING, tweak STRING, block STRING) -> STRING
+  #let k1 STRING = substr(key, 0, 32);
+  #let k2 STRING = substr(key, 32, 32);
+  #let zero_iv STRING = "00000000000000000000000000000000";
+
+  # Encrypt tweak with K2 to get ET
+  #let et STRING = crypto.encrypt_hex(aes128, cbc, nopad, var.k2, var.zero_iv, tweak);
+
+  # XOR block with ET
+  #let block_xor_et STRING = xor_hex_128(block, var.et);
+
+  # Encrypt with K1
+  #let encrypted STRING = crypto.encrypt_hex(aes128, cbc, nopad, var.k1, var.zero_iv, var.block_xor_et);
+
+  # XOR result with ET
+  #let ciphertext STRING = xor_hex_128(var.encrypted, var.et);
+
+  return var.ciphertext;
+#enddef
+
+# AES-XTS Decrypt for single block (128 bits)
+#def aes_xts_decrypt(key STRING, tweak STRING, ciphertext STRING) -> STRING
+  #let k1 STRING = substr(key, 0, 32);
+  #let k2 STRING = substr(key, 32, 32);
+  #let zero_iv STRING = "00000000000000000000000000000000";
+
+  # Encrypt tweak with K2 to get ET
+  #let et STRING = crypto.encrypt_hex(aes128, cbc, nopad, var.k2, var.zero_iv, tweak);
+
+  # XOR ciphertext with ET
+  #let cipher_xor_et STRING = xor_hex_128(ciphertext, var.et);
+
+  # Decrypt with K1
+  #let decrypted STRING = crypto.decrypt_hex(aes128, cbc, nopad, var.k1, var.zero_iv, var.cipher_xor_et);
+
+  # XOR result with ET
+  #let plaintext STRING = xor_hex_128(var.decrypted, var.et);
+
+  return var.plaintext;
+#enddef
+
+# === TEST HARNESS ===
+
+sub vcl_recv {
+    #FASTLY RECV
+
+    declare local var.output STRING;
+    declare local var.expected STRING;
+    declare local var.match STRING;
+    declare local var.full_output STRING;
+
+    log "=== IPCrypt-NDX Test Vectors (draft-denis-ipcrypt) ===";
+    log "Testing AES-XTS encryption with official test vectors";
+    log "";
+
+    # Test vector 1: IPv4 0.0.0.0
+    # Key: 0123456789abcdeffedcba98765432101032547698badcfeefcdab8967452301
+    # IP: 0.0.0.0 -> 00000000000000000000ffff00000000
+    # Tweak: 21bd1834bc088cd2b4ecbe30b70898d7
+    # Expected output (ciphertext only): 82db0d4125fdace61db35b8339f20ee5
+    # Expected full output: 21bd1834bc088cd2b4ecbe30b70898d782db0d4125fdace61db35b8339f20ee5
+
+    set var.output = aes_xts_encrypt(
+        "{{TEST1_KEY}}",
+        "{{TEST1_TWEAK}}",
+        "00000000000000000000ffff00000000"
+    );
+    set var.expected = "82db0d4125fdace61db35b8339f20ee5";
+    set var.full_output = "{{TEST1_TWEAK}}" + var.output;
+
+    if (var.output == var.expected) {
+        set var.match = "PASS";
+    } else {
+        set var.match = "FAIL";
+    }
+
+    log "Test 1: 0.0.0.0";
+    log "  Ciphertext: " + var.output;
+    log "  Expected:   " + var.expected + " [" + var.match + "]";
+    log "  Full:       " + var.full_output;
+    log "";
+
+    # Test vector 2: IPv4 255.255.255.255
+    # Key: 1032547698badcfeefcdab89674523010123456789abcdeffedcba9876543210
+    # IP: 255.255.255.255 -> 00000000000000000000ffffffffffff
+    # Tweak: 21bd1834bc088cd2b4ecbe30b70898d7
+    # Expected output (ciphertext only): 76c7dbd1ae4802a2dd95ad4f88273535
+    # Expected full output: 21bd1834bc088cd2b4ecbe30b70898d776c7dbd1ae4802a2dd95ad4f88273535
+
+    set var.output = aes_xts_encrypt(
+        "{{TEST2_KEY}}",
+        "{{TEST2_TWEAK}}",
+        "00000000000000000000ffffffffffff"
+    );
+    set var.expected = "76c7dbd1ae4802a2dd95ad4f88273535";
+    set var.full_output = "{{TEST2_TWEAK}}" + var.output;
+
+    if (var.output == var.expected) {
+        set var.match = "PASS";
+    } else {
+        set var.match = "FAIL";
+    }
+
+    log "Test 2: 255.255.255.255";
+    log "  Ciphertext: " + var.output;
+    log "  Expected:   " + var.expected + " [" + var.match + "]";
+    log "  Full:       " + var.full_output;
+    log "";
+
+    # Test vector 3: IPv4 192.0.2.1
+    # Key: 2b7e151628aed2a6abf7158809cf4f3c3c4fcf098815f7aba6d2ae2816157e2b
+    # IP: 192.0.2.1 -> 00000000000000000000ffffc0000201
+    # Tweak: 21bd1834bc088cd2b4ecbe30b70898d7
+    # Expected output (ciphertext only): 259e85ebaa000667d2437ac7e2208d71
+    # Expected full output: 21bd1834bc088cd2b4ecbe30b70898d7259e85ebaa000667d2437ac7e2208d71
+
+    set var.output = aes_xts_encrypt(
+        "{{TEST3_KEY}}",
+        "{{TEST3_TWEAK}}",
+        "00000000000000000000ffffc0000201"
+    );
+    set var.expected = "259e85ebaa000667d2437ac7e2208d71";
+    set var.full_output = "{{TEST3_TWEAK}}" + var.output;
+
+    if (var.output == var.expected) {
+        set var.match = "PASS";
+    } else {
+        set var.match = "FAIL";
+    }
+
+    log "Test 3: 192.0.2.1";
+    log "  Ciphertext: " + var.output;
+    log "  Expected:   " + var.expected + " [" + var.match + "]";
+    log "  Full:       " + var.full_output;
+    log "";
+
+    # Additional test vectors from JSON
+
+    # Test vector 4: IPv6 2001:db8:85a3::8a2e:370:7334
+    # Key: 0123456789abcdeffedcba98765432101032547698badcfeefcdab8967452301
+    # IP: 2001:db8:85a3::8a2e:370:7334 -> 20010db885a3000000008a2e03707334
+    # Tweak: 21bd1834bc088cd2b4ecbe30b70898d7
+    # Expected (from test vectors): 21bd1834bc088cd2b4ecbe30b70898d7fe8d52464555ef3458e4a6eefe14eb28
+    # Ciphertext only: fe8d52464555ef3458e4a6eefe14eb28
+
+    set var.output = aes_xts_encrypt(
+        "{{TEST1_KEY}}",
+        "{{TEST1_TWEAK}}",
+        "20010db885a3000000008a2e03707334"
+    );
+    set var.expected = "fe8d52464555ef3458e4a6eefe14eb28";
+    set var.full_output = "{{TEST1_TWEAK}}" + var.output;
+
+    if (var.output == var.expected) {
+        set var.match = "PASS";
+    } else {
+        set var.match = "FAIL";
+    }
+
+    log "Test 4: 2001:db8:85a3::8a2e:370:7334";
+    log "  Ciphertext: " + var.output;
+    log "  Expected:   " + var.expected + " [" + var.match + "]";
+    log "  Full:       " + var.full_output;
+    log "";
+
+    # Test vector 5: IPv4 192.0.2.1 (different key)
+    # Key: 1032547698badcfeefcdab89674523010123456789abcdeffedcba9876543210
+    # IP: 192.0.2.1 -> 00000000000000000000ffffc0000201
+    # Tweak: 21bd1834bc088cd2b4ecbe30b70898d7
+    # Expected (from JSON line 96-101): 21bd1834bc088cd2b4ecbe30b70898d7c9487dffa9292855845d234bd1d72395
+    # Ciphertext only: c9487dffa9292855845d234bd1d72395
+
+    set var.output = aes_xts_encrypt(
+        "{{TEST2_KEY}}",
+        "{{TEST2_TWEAK}}",
+        "00000000000000000000ffffc0000201"
+    );
+    set var.expected = "c9487dffa9292855845d234bd1d72395";
+    set var.full_output = "{{TEST2_TWEAK}}" + var.output;
+
+    if (var.output == var.expected) {
+        set var.match = "PASS";
+    } else {
+        set var.match = "FAIL";
+    }
+
+    log "Test 5: 192.0.2.1 (different key)";
+    log "  Ciphertext: " + var.output;
+    log "  Expected:   " + var.expected + " [" + var.match + "]";
+    log "  Full:       " + var.full_output;
+    log "";
+
+    log "=== All test vectors completed ===";
+
+    error 200;
+}

@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="xvcl - A modern VCL preprocessor that extends Fastly VCL with metaprogramming features like loops, functions, macros, and conditionals.">
+    <meta name="keywords" content="VCL, Fastly, preprocessor, metaprogramming, CDN, transpiler">
+
+    <!-- Open Graph -->
+    <meta property="og:title" content="xvcl - Metaprogramming for Fastly VCL">
+    <meta property="og:description" content="Write less VCL, deploy more. A modern preprocessor with loops, functions, and macros that compiles to standard Fastly VCL.">
+    <meta property="og:type" content="website">
+
+    <title>xvcl - Metaprogramming for Fastly VCL</title>
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='0.9em' font-size='90'%3E⚡%3C/text%3E%3C/svg%3E">
+
+    <!-- Styles -->
+    <link rel="stylesheet" href="styles.css">
+
+    <!-- Syntax Highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar" id="navbar">
+        <div class="container nav-container">
+            <div class="nav-brand">
+                <span class="logo">xvcl</span>
+            </div>
+            <button class="nav-toggle" id="navToggle" aria-label="Toggle navigation">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="#features" class="nav-link">Features</a></li>
+                <li><a href="#examples" class="nav-link">Examples</a></li>
+                <li><a href="#quickstart" class="nav-link">Quick Start</a></li>
+                <li><a href="#docs" class="nav-link">Documentation</a></li>
+                <li><a href="https://github.com/dip-proto/xvcl" class="nav-link nav-github" target="_blank" rel="noopener">GitHub</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <main>
+        <!-- Hero Section -->
+        <section class="hero" id="hero">
+            <div class="container">
+                <div class="hero-content">
+                    <h1 class="hero-title">Metaprogramming for Fastly VCL</h1>
+                    <p class="hero-subtitle">A modern preprocessor that extends VCL with loops, functions, macros, and conditionals. Write less, deploy more.</p>
+
+                    <div class="hero-features">
+                        <div class="hero-feature">
+                            <span class="feature-icon">⚡</span>
+                            <span>Zero runtime overhead - compiles to standard VCL</span>
+                        </div>
+                        <div class="hero-feature">
+                            <span class="feature-icon">🔄</span>
+                            <span>Reduces boilerplate with loops and macros</span>
+                        </div>
+                        <div class="hero-feature">
+                            <span class="feature-icon">🛡️</span>
+                            <span>Type-safe functions with automatic parameter passing</span>
+                        </div>
+                    </div>
+
+                    <div class="hero-cta">
+                        <a href="#quickstart" class="btn btn-primary">Get Started</a>
+                        <a href="https://github.com/dip-proto/xvcl" class="btn btn-secondary" target="_blank" rel="noopener">View on GitHub</a>
+                    </div>
+                </div>
+
+                <div class="hero-code">
+                    <div class="code-comparison">
+                        <div class="code-block">
+                            <div class="code-header">Input (xvcl)</div>
+                            <pre><code class="language-c">#const MAX_BACKENDS INTEGER = 5
+
+#for i in range(MAX_BACKENDS)
+backend web{{i}} {
+  .host = "web{{i}}.example.com";
+  .port = "80";
+}
+#endfor</code></pre>
+                        </div>
+                        <div class="arrow">→</div>
+                        <div class="code-block">
+                            <div class="code-header">Output (VCL)</div>
+                            <pre><code class="language-c">backend web0 {
+  .host = "web0.example.com";
+  .port = "80";
+}
+backend web1 {
+  .host = "web1.example.com";
+  .port = "80";
+}
+// ... web2, web3, web4</code></pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Why xvcl Section -->
+        <section class="why-section" id="why">
+            <div class="container">
+                <h2 class="section-title">Why xvcl?</h2>
+                <div class="why-grid">
+                    <div class="why-card">
+                        <h3>VCL is Repetitive</h3>
+                        <p>Fastly VCL lacks abstraction mechanisms. Creating similar backends, directors, or ACL entries requires copy-paste-modify patterns that are error-prone and hard to maintain.</p>
+                    </div>
+                    <div class="why-card">
+                        <h3>Configuration Management is Hard</h3>
+                        <p>Managing environment-specific configurations (dev, staging, production) or multi-region deployments requires maintaining multiple VCL files or brittle string templating.</p>
+                    </div>
+                    <div class="why-card">
+                        <h3>No Code Reuse</h3>
+                        <p>VCL subroutines can't accept parameters or return values, making it difficult to create reusable logic without global state management hacks.</p>
+                    </div>
+                </div>
+                <div class="why-solution">
+                    <h3>The Solution</h3>
+                    <p><strong>xvcl</strong> extends VCL with metaprogramming features at compile time. It processes your enhanced VCL source files and generates clean, standard VCL that works with Fastly. Think of it as a build step that makes VCL development feel like modern programming.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Features Section -->
+        <section class="features-section" id="features">
+            <div class="container">
+                <h2 class="section-title">Powerful Features</h2>
+                <p class="section-subtitle">Everything you need to write maintainable, DRY VCL configuration</p>
+
+                <div class="features-grid">
+                    <div class="feature-card">
+                        <div class="feature-icon-large">📝</div>
+                        <h3>Constants</h3>
+                        <p>Define compile-time constants with type checking. Use them throughout your configuration for centralized management.</p>
+                        <pre><code class="language-c">#const API_TIMEOUT INTEGER = 5000
+#const ORIGIN STRING = "api.example.com"</code></pre>
+                    </div>
+
+                    <div class="feature-card">
+                        <div class="feature-icon-large">🔁</div>
+                        <h3>For Loops</h3>
+                        <p>Generate repetitive code blocks dynamically. Iterate over ranges or lists to create backends, directors, or ACL entries.</p>
+                        <pre><code class="language-c">#for region in ["us", "eu", "asia"]
+backend origin_{{region}} {
+  .host = "{{region}}.example.com";
+}
+#endfor</code></pre>
+                    </div>
+
+                    <div class="feature-card">
+                        <div class="feature-icon-large">🔀</div>
+                        <h3>Conditionals</h3>
+                        <p>Conditional compilation based on environment variables or constants. Different code for dev vs production.</p>
+                        <pre><code class="language-c">#if PRODUCTION
+  set req.http.X-Debug = "false";
+#else
+  set req.http.X-Debug = "true";
+#endif</code></pre>
+                    </div>
+
+                    <div class="feature-card">
+                        <div class="feature-icon-large">⚙️</div>
+                        <h3>Functions</h3>
+                        <p>Define reusable functions with parameters and return values. Compiles to VCL subroutines with automatic header-based parameter passing.</p>
+                        <pre><code class="language-c">#def normalize(url STRING) -> STRING
+  return std.tolower(url);
+#enddef
+
+set req.url = normalize(req.url);</code></pre>
+                    </div>
+
+                    <div class="feature-card">
+                        <div class="feature-icon-large">⚡</div>
+                        <h3>Inline Macros</h3>
+                        <p>Zero-overhead text substitution for simple expressions. Expands inline without function call overhead.</p>
+                        <pre><code class="language-c">#inline is_mobile(ua)
+regsuball(ua, "(?i)mobile|android", "")
+#endinline</code></pre>
+                    </div>
+
+                    <div class="feature-card">
+                        <div class="feature-icon-large">📦</div>
+                        <h3>Includes</h3>
+                        <p>Modular code organization with include-once semantics and circular dependency detection.</p>
+                        <pre><code class="language-c">#include "backends.xvcl"
+#include "functions.xvcl"
+#include "security.xvcl"</code></pre>
+                    </div>
+
+                    <div class="feature-card">
+                        <div class="feature-icon-large">🎯</div>
+                        <h3>Template Expressions</h3>
+                        <p>Evaluate Python expressions at compile time. Use constants and loop variables for dynamic code generation.</p>
+                        <pre><code class="language-c">#for i in range(10)
+  if (req.http.X-Port == "{{8000 + i}}") {
+    set req.backend = app{{i}};
+  }
+#endfor</code></pre>
+                    </div>
+
+                    <div class="feature-card">
+                        <div class="feature-icon-large">🔍</div>
+                        <h3>Source Maps</h3>
+                        <p>Debug generated VCL with source map comments that track where each line originated in your xvcl files.</p>
+                        <pre><code class="language-bash">xvcl main.xvcl -o main.vcl --source-maps</code></pre>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Examples Section -->
+        <section class="examples-section" id="examples">
+            <div class="container">
+                <h2 class="section-title">See It In Action</h2>
+                <p class="section-subtitle">Real-world examples showing xvcl's power</p>
+
+                <div class="example">
+                    <h3 class="example-title">Example 1: Multi-Region Backends</h3>
+                    <div class="code-comparison-horizontal">
+                        <div class="code-pane">
+                            <div class="code-label">xvcl Source</div>
+                            <pre><code class="language-c">#const REGIONS = ["us-east", "us-west", "eu-central", "ap-southeast"]
+
+#for region in REGIONS
+backend origin_{{region}} {
+  .host = "{{region}}.api.example.com";
+  .port = "443";
+  .ssl = true;
+  .connect_timeout = 5s;
+}
+#endfor</code></pre>
+                        </div>
+                        <div class="code-pane">
+                            <div class="code-label">Generated VCL</div>
+                            <pre><code class="language-c">backend origin_us_east {
+  .host = "us-east.api.example.com";
+  .port = "443";
+  .ssl = true;
+  .connect_timeout = 5s;
+}
+backend origin_us_west {
+  .host = "us-west.api.example.com";
+  .port = "443";
+  .ssl = true;
+  .connect_timeout = 5s;
+}
+// ... eu-central, ap-southeast</code></pre>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="example">
+                    <h3 class="example-title">Example 2: Reusable Functions</h3>
+                    <div class="code-comparison-horizontal">
+                        <div class="code-pane">
+                            <div class="code-label">xvcl Source</div>
+                            <pre><code class="language-c">#def cache_key(url STRING, user STRING) -> STRING
+  declare local var.key STRING;
+  set var.key = url + ":" + user;
+  return std.tolower(var.key);
+#enddef
+
+sub vcl_hash {
+  set req.hash += cache_key(req.url, req.http.User-ID);
+}</code></pre>
+                        </div>
+                        <div class="code-pane">
+                            <div class="code-label">Generated VCL</div>
+                            <pre><code class="language-c">sub xvcl_func_cache_key {
+  //@recv, hash, hit, miss, pass, fetch, error, deliver, log
+  declare local var.key STRING;
+  set var.key = req.http.X-Func-cache_key-url + ":" +
+                req.http.X-Func-cache_key-user;
+  set req.http.X-Func-cache_key-Return = std.tolower(var.key);
+}
+
+sub vcl_hash {
+  set req.http.X-Func-cache_key-url = req.url;
+  set req.http.X-Func-cache_key-user = req.http.User-ID;
+  call xvcl_func_cache_key;
+  set req.hash += req.http.X-Func-cache_key-Return;
+}</code></pre>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="example">
+                    <h3 class="example-title">Example 3: Environment Configuration</h3>
+                    <div class="code-comparison-horizontal">
+                        <div class="code-pane">
+                            <div class="code-label">xvcl Source</div>
+                            <pre><code class="language-c">#const ENV STRING = "production"
+#const DEBUG BOOL = false
+
+sub vcl_recv {
+  #if DEBUG
+    set req.http.X-Debug = "enabled";
+    set req.http.X-Timestamp = now;
+  #endif
+
+  set req.http.X-Environment = "{{ENV}}";
+
+  #if ENV == "production"
+    unset req.http.X-Internal-Header;
+  #endif
+}</code></pre>
+                        </div>
+                        <div class="code-pane">
+                            <div class="code-label">Generated VCL</div>
+                            <pre><code class="language-c">sub vcl_recv {
+  set req.http.X-Environment = "production";
+
+  unset req.http.X-Internal-Header;
+}</code></pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Quick Start Section -->
+        <section class="quickstart-section" id="quickstart">
+            <div class="container">
+                <h2 class="section-title">Quick Start</h2>
+                <p class="section-subtitle">Get up and running in minutes</p>
+
+                <div class="quickstart-content">
+                    <div class="installation">
+                        <h3>Installation</h3>
+                        <p>Choose your preferred installation method:</p>
+
+                        <div class="install-options">
+                            <div class="install-option">
+                                <h4>Using pip</h4>
+                                <pre><code class="language-bash">pip install xvcl</code></pre>
+                            </div>
+
+                            <div class="install-option">
+                                <h4>Using uv (recommended)</h4>
+                                <pre><code class="language-bash">uv pip install xvcl</code></pre>
+                            </div>
+
+                            <div class="install-option">
+                                <h4>Using uvx (no install required)</h4>
+                                <pre><code class="language-bash">uvx xvcl input.xvcl -o output.vcl</code></pre>
+                            </div>
+
+                            <div class="install-option">
+                                <h4>From source</h4>
+                                <pre><code class="language-bash">git clone https://github.com/dip-proto/xvcl.git
+cd xvcl
+pip install -e .</code></pre>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="first-steps">
+                        <h3>Your First xvcl File</h3>
+                        <p>Create a simple <code>hello.xvcl</code> file:</p>
+
+                        <pre><code class="language-c">#const SERVICE_NAME STRING = "My Awesome Service"
+
+sub vcl_recv {
+  set req.http.X-Service = "{{SERVICE_NAME}}";
+
+  #for i in range(3)
+  if (req.http.X-Backend-ID == "{{i}}") {
+    set req.backend = backend{{i}};
+  }
+  #endfor
+}
+
+#for i in range(3)
+backend backend{{i}} {
+  .host = "backend{{i}}.example.com";
+  .port = "80";
+}
+#endfor</code></pre>
+
+                        <p>Compile it to standard VCL:</p>
+                        <pre><code class="language-bash">xvcl hello.xvcl -o hello.vcl</code></pre>
+
+                        <p>Validate with Falco (if installed):</p>
+                        <pre><code class="language-bash">falco lint hello.vcl</code></pre>
+                    </div>
+
+                    <div class="workflow">
+                        <h3>Development Workflow</h3>
+                        <div class="workflow-steps">
+                            <div class="workflow-step">
+                                <div class="step-number">1</div>
+                                <div class="step-content">
+                                    <h4>Write xvcl</h4>
+                                    <p>Create your VCL configuration using xvcl's enhanced syntax with loops, functions, and macros.</p>
+                                </div>
+                            </div>
+                            <div class="workflow-step">
+                                <div class="step-number">2</div>
+                                <div class="step-content">
+                                    <h4>Compile</h4>
+                                    <p>Run <code>xvcl</code> to transpile your source to standard VCL. Use <code>--debug</code> for verbose output.</p>
+                                </div>
+                            </div>
+                            <div class="workflow-step">
+                                <div class="step-number">3</div>
+                                <div class="step-content">
+                                    <h4>Validate</h4>
+                                    <p>Use <code>falco lint</code> to check the generated VCL for errors and best practices.</p>
+                                </div>
+                            </div>
+                            <div class="workflow-step">
+                                <div class="step-number">4</div>
+                                <div class="step-content">
+                                    <h4>Test</h4>
+                                    <p>Run <code>falco test</code> on your VCL to verify behavior with unit tests.</p>
+                                </div>
+                            </div>
+                            <div class="workflow-step">
+                                <div class="step-number">5</div>
+                                <div class="step-content">
+                                    <h4>Deploy</h4>
+                                    <p>Upload the generated VCL to Fastly and activate your service.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Documentation Section -->
+        <section class="docs-section" id="docs">
+            <div class="container">
+                <h2 class="section-title">Documentation</h2>
+                <p class="section-subtitle">Everything you need to master xvcl</p>
+
+                <div class="docs-grid">
+                    <a href="https://github.com/dip-proto/xvcl/blob/main/README.md" class="doc-card" target="_blank" rel="noopener">
+                        <div class="doc-icon">📘</div>
+                        <h3>Full Documentation</h3>
+                        <p>Complete guide to all xvcl features, directives, and usage patterns.</p>
+                    </a>
+
+                    <a href="https://github.com/dip-proto/xvcl/blob/main/xvcl-quick-reference.md" class="doc-card" target="_blank" rel="noopener">
+                        <div class="doc-icon">⚡</div>
+                        <h3>Quick Reference</h3>
+                        <p>Concise syntax reference for all xvcl directives and template expressions.</p>
+                    </a>
+
+                    <a href="https://github.com/dip-proto/xvcl/tree/main/examples" class="doc-card" target="_blank" rel="noopener">
+                        <div class="doc-icon">💡</div>
+                        <h3>Examples</h3>
+                        <p>Real-world xvcl implementations including IP encryption and complex configurations.</p>
+                    </a>
+
+                    <a href="https://github.com/dip-proto/xvcl/issues" class="doc-card" target="_blank" rel="noopener">
+                        <div class="doc-icon">🐛</div>
+                        <h3>Issues & Support</h3>
+                        <p>Report bugs, request features, or get help from the community.</p>
+                    </a>
+                </div>
+
+                <div class="integration-info">
+                    <h3>Integration with Falco</h3>
+                    <p>xvcl works seamlessly with <a href="https://github.com/dip-proto/falco" target="_blank" rel="noopener">Falco</a>, a comprehensive VCL linting, testing, and simulation tool.</p>
+
+                    <div class="integration-example">
+                        <h4>Complete Pipeline Example</h4>
+                        <pre><code class="language-bash"># 1. Compile xvcl to VCL
+xvcl main.xvcl -o main.vcl -I ./includes
+
+# 2. Lint the generated VCL
+falco lint -vv main.vcl
+
+# 3. Run tests
+falco test main.vcl
+
+# 4. Simulate locally
+falco simulate main.vcl
+
+# 5. Deploy to Fastly (using Fastly CLI)
+fastly vcl custom update --version=latest --name=main --content=main.vcl</code></pre>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-section">
+                    <h3 class="footer-brand">xvcl</h3>
+                    <p>Metaprogramming for Fastly VCL</p>
+                    <p class="footer-tagline">Built for CDN engineers and developers</p>
+                </div>
+
+                <div class="footer-section">
+                    <h4>Resources</h4>
+                    <ul class="footer-links">
+                        <li><a href="https://github.com/dip-proto/xvcl" target="_blank" rel="noopener">GitHub</a></li>
+                        <li><a href="https://github.com/dip-proto/xvcl/blob/main/README.md" target="_blank" rel="noopener">Documentation</a></li>
+                        <li><a href="https://github.com/dip-proto/xvcl/tree/main/examples" target="_blank" rel="noopener">Examples</a></li>
+                        <li><a href="https://github.com/dip-proto/xvcl/releases" target="_blank" rel="noopener">Releases</a></li>
+                    </ul>
+                </div>
+
+                <div class="footer-section">
+                    <h4>Community</h4>
+                    <ul class="footer-links">
+                        <li><a href="https://github.com/dip-proto/xvcl/issues" target="_blank" rel="noopener">Issues</a></li>
+                        <li><a href="https://github.com/dip-proto/xvcl/discussions" target="_blank" rel="noopener">Discussions</a></li>
+                        <li><a href="https://github.com/dip-proto/xvcl/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener">Contributing</a></li>
+                    </ul>
+                </div>
+
+                <div class="footer-section">
+                    <h4>Related Projects</h4>
+                    <ul class="footer-links">
+                        <li><a href="https://github.com/dip-proto/falco" target="_blank" rel="noopener">Falco (VCL Linter)</a></li>
+                        <li><a href="https://developer.fastly.com/reference/vcl/" target="_blank" rel="noopener">Fastly VCL Docs</a></li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="footer-bottom">
+                <p>&copy; <span id="year">2025</span> xvcl. Open source under the MIT License.</p>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Scripts -->
+    <script>
+        // Initialize syntax highlighting
+        document.addEventListener('DOMContentLoaded', (event) => {
+            document.querySelectorAll('pre code').forEach((block) => {
+                hljs.highlightElement(block);
+            });
+        });
+
+        // Mobile navigation toggle
+        const navToggle = document.getElementById('navToggle');
+        const navMenu = document.getElementById('navMenu');
+
+        navToggle.addEventListener('click', () => {
+            navMenu.classList.toggle('active');
+            navToggle.classList.toggle('active');
+        });
+
+        // Close mobile menu when clicking a link
+        document.querySelectorAll('.nav-link').forEach(link => {
+            link.addEventListener('click', () => {
+                navMenu.classList.remove('active');
+                navToggle.classList.remove('active');
+            });
+        });
+
+        // Update year in footer
+        document.getElementById('year').textContent = new Date().getFullYear();
+
+        // Smooth scroll for anchor links
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {
+                    const navHeight = document.querySelector('.navbar').offsetHeight;
+                    const targetPosition = target.offsetTop - navHeight;
+                    window.scrollTo({
+                        top: targetPosition,
+                        behavior: 'smooth'
+                    });
+                }
+            });
+        });
+
+        // Navbar scroll effect
+        let lastScroll = 0;
+        const navbar = document.getElementById('navbar');
+
+        window.addEventListener('scroll', () => {
+            const currentScroll = window.pageYOffset;
+
+            if (currentScroll > 100) {
+                navbar.classList.add('scrolled');
+            } else {
+                navbar.classList.remove('scrolled');
+            }
+
+            lastScroll = currentScroll;
+        });
+
+        // Fade in sections on scroll
+        const observerOptions = {
+            threshold: 0.1,
+            rootMargin: '0px 0px -50px 0px'
+        };
+
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('fade-in');
+                }
+            });
+        }, observerOptions);
+
+        document.querySelectorAll('.feature-card, .example, .doc-card, .why-card').forEach(el => {
+            observer.observe(el);
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,197 @@
+# IPCrypt-Deterministic Implementation
+
+backend test_backend {
+    .host = "127.0.0.1";
+    .port = "8080";
+}
+
+# === LOOKUP TABLES ===
+
+# Byte (0-255) to 2-digit hex
+table byte_to_hex STRING {
+#for i in range(256)
+    "{{i}}": "{{format(i, '02x')}}"{{", " if i < 255 else ""}}
+#endfor
+}
+
+# === HELPER FUNCTIONS ===
+
+# Function: ip_to_hex128
+# Converts an IP address (IPv4 or IPv6) to a 32-character hex string
+# IPv4 addresses are mapped to IPv6 format: ::ffff:a.b.c.d
+sub ip_to_hex128 {
+    declare local var.input_ip IP;
+    set var.input_ip = req.http.X-Func-ip_to_hex128-ip;
+
+    declare local var.return_value STRING;
+    declare local var.is_ipv4 BOOL;
+    set var.is_ipv4 = addr.is_ipv4(var.input_ip);
+
+    if (var.is_ipv4) {
+        # IPv4: Convert to IPv4-mapped IPv6 format
+        # Format: 00000000000000000000ffff + 8 hex digits for IPv4
+        declare local var.ipv4_hex STRING;
+        set var.ipv4_hex = "00000000000000000000ffff";
+
+        # Extract each octet and convert to hex
+#for i in range(4)
+        set var.ipv4_hex = var.ipv4_hex + table.lookup(byte_to_hex,
+            std.itoa(addr.extract_bits(var.input_ip, {{(3 - i) * 8}}, 8)));
+#endfor
+
+        set var.return_value = var.ipv4_hex;
+    } else {
+        # IPv6: Extract all 16 bytes
+        declare local var.ipv6_hex STRING;
+        set var.ipv6_hex = "";
+
+        # Extract all 16 bytes (128 bits) from the IPv6 address
+#for i in range(16)
+        set var.ipv6_hex = var.ipv6_hex + table.lookup(byte_to_hex,
+            std.itoa(addr.extract_bits(var.input_ip, {{(15 - i) * 8}}, 8)));
+#endfor
+
+        set var.return_value = var.ipv6_hex;
+    }
+
+    set req.http.X-Func-ip_to_hex128-Return = var.return_value;
+}
+
+# Function: hex128_to_ipv6
+# Converts a 32-character hex string to an IPv6 address string in canonical format
+sub hex128_to_ipv6 {
+    declare local var.hex128 STRING;
+    set var.hex128 = req.http.X-Func-hex128_to_ipv6-hex128;
+
+    declare local var.return_value STRING;
+
+    # Convert to standard IPv6 format by:
+    # 1. Grouping into 8 groups of 4 hex digits
+    # 2. Using std.str2ip to get canonical formatting
+    #
+    # Format as IPv6: xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx
+    declare local var.ipv6_str STRING;
+    set var.ipv6_str =
+        substr(var.hex128, 0, 4) + ":" +
+        substr(var.hex128, 4, 4) + ":" +
+        substr(var.hex128, 8, 4) + ":" +
+        substr(var.hex128, 12, 4) + ":" +
+        substr(var.hex128, 16, 4) + ":" +
+        substr(var.hex128, 20, 4) + ":" +
+        substr(var.hex128, 24, 4) + ":" +
+        substr(var.hex128, 28, 4);
+
+    # Convert to IP and back to STRING to get canonical format
+    declare local var.ip_val IP;
+    set var.ip_val = std.str2ip(var.ipv6_str, "::1");
+
+    # Now convert back to string to get canonical format
+    set var.return_value = var.ip_val;
+
+    set req.http.X-Func-hex128_to_ipv6-Return = var.return_value;
+}
+
+# === MAIN FUNCTIONS ===
+
+# Function: ipcrypt_deterministic_encrypt
+# Encrypts an IP address using ipcrypt-deterministic (AES-128 single-block)
+sub ipcrypt_deterministic_encrypt {
+    declare local var.input_ip IP;
+    declare local var.key STRING;
+    set var.input_ip = req.http.X-Func-ipcrypt_deterministic_encrypt-ip;
+    set var.key = req.http.X-Func-ipcrypt_deterministic_encrypt-key;
+
+    declare local var.return_value STRING;
+
+    # Step 1: Convert IP to 16-byte (128-bit) hex representation
+    set req.http.X-Func-ip_to_hex128-ip = var.input_ip;
+    call ip_to_hex128;
+    declare local var.hex128 STRING;
+    set var.hex128 = req.http.X-Func-ip_to_hex128-Return;
+
+    # Step 2: Encrypt using AES-128 (use CBC with zero IV to simulate ECB)
+    declare local var.zero_iv STRING;
+    set var.zero_iv = "00000000000000000000000000000000";
+    declare local var.encrypted_hex STRING;
+    set var.encrypted_hex = crypto.encrypt_hex(aes128, cbc, nopad, var.key, var.zero_iv, var.hex128);
+
+    # Step 3: Convert to IPv6 format
+    set req.http.X-Func-hex128_to_ipv6-hex128 = var.encrypted_hex;
+    call hex128_to_ipv6;
+    set var.return_value = req.http.X-Func-hex128_to_ipv6-Return;
+
+    set req.http.X-Func-ipcrypt_deterministic_encrypt-Return = var.return_value;
+}
+
+# Function: ipcrypt_deterministic_decrypt
+# Decrypts an ipcrypt-deterministic encrypted IP address
+sub ipcrypt_deterministic_decrypt {
+    declare local var.encrypted_ip IP;
+    declare local var.key STRING;
+    set var.encrypted_ip = req.http.X-Func-ipcrypt_deterministic_decrypt-encrypted_ip;
+    set var.key = req.http.X-Func-ipcrypt_deterministic_decrypt-key;
+
+    declare local var.return_value STRING;
+
+    # Step 1: Convert encrypted IP to hex
+    set req.http.X-Func-ip_to_hex128-ip = var.encrypted_ip;
+    call ip_to_hex128;
+    declare local var.encrypted_hex STRING;
+    set var.encrypted_hex = req.http.X-Func-ip_to_hex128-Return;
+
+    # Step 2: Decrypt using AES-128 (use CBC with zero IV to simulate ECB)
+    declare local var.zero_iv STRING;
+    set var.zero_iv = "00000000000000000000000000000000";
+    declare local var.decrypted_hex STRING;
+    set var.decrypted_hex = crypto.decrypt_hex(aes128, cbc, nopad, var.key, var.zero_iv, var.encrypted_hex);
+
+    # Step 3: Convert to IPv6 format
+    set req.http.X-Func-hex128_to_ipv6-hex128 = var.decrypted_hex;
+    call hex128_to_ipv6;
+    set var.return_value = req.http.X-Func-hex128_to_ipv6-Return;
+
+    set req.http.X-Func-ipcrypt_deterministic_decrypt-Return = var.return_value;
+}
+
+# === TEST SUBROUTINE ===
+
+sub vcl_recv {
+    # Test ipcrypt-deterministic with test vectors
+
+    # Test vector 1: 0.0.0.0
+    set req.http.X-Func-ipcrypt_deterministic_encrypt-ip = "0.0.0.0";
+    set req.http.X-Func-ipcrypt_deterministic_encrypt-key = "0123456789abcdeffedcba9876543210";
+    call ipcrypt_deterministic_encrypt;
+    set req.http.X-Test1-Result = req.http.X-Func-ipcrypt_deterministic_encrypt-Return;
+    set req.http.X-Test1-Expected = "bde9:6789:d353:824c:d7c6:f58a:6bd2:26eb";
+
+    # Test vector 2: 255.255.255.255
+    set req.http.X-Func-ipcrypt_deterministic_encrypt-ip = "255.255.255.255";
+    set req.http.X-Func-ipcrypt_deterministic_encrypt-key = "1032547698badcfeefcdab8967452301";
+    call ipcrypt_deterministic_encrypt;
+    set req.http.X-Test2-Result = req.http.X-Func-ipcrypt_deterministic_encrypt-Return;
+    set req.http.X-Test2-Expected = "aed2:92f6:ea23:58c3:48fd:8b8:74e8:45d8";
+
+    # Test vector 3: 192.0.2.1
+    set req.http.X-Func-ipcrypt_deterministic_encrypt-ip = "192.0.2.1";
+    set req.http.X-Func-ipcrypt_deterministic_encrypt-key = "2b7e151628aed2a6abf7158809cf4f3c";
+    call ipcrypt_deterministic_encrypt;
+    set req.http.X-Test3-Result = req.http.X-Func-ipcrypt_deterministic_encrypt-Return;
+    set req.http.X-Test3-Expected = "1dbd:c1b9:fff1:7586:7d0b:67b4:e76e:4777";
+
+    # Test vector 4: IPv6 2001:db8:85a3::8a2e:370:7334
+    set req.http.X-Func-ipcrypt_deterministic_encrypt-ip = "2001:db8:85a3::8a2e:370:7334";
+    set req.http.X-Func-ipcrypt_deterministic_encrypt-key = "0123456789abcdeffedcba9876543210";
+    call ipcrypt_deterministic_encrypt;
+    set req.http.X-Test4-Result = req.http.X-Func-ipcrypt_deterministic_encrypt-Return;
+    set req.http.X-Test4-Expected = "1eef:2352:64c8:18e6:6456:1373:f615:5032";
+
+    # Test vector 5: 192.0.2.1 with different key
+    set req.http.X-Func-ipcrypt_deterministic_encrypt-ip = "192.0.2.1";
+    set req.http.X-Func-ipcrypt_deterministic_encrypt-key = "1032547698badcfeefcdab8967452301";
+    call ipcrypt_deterministic_encrypt;
+    set req.http.X-Test5-Result = req.http.X-Func-ipcrypt_deterministic_encrypt-Return;
+    set req.http.X-Test5-Expected = "7fde:a680:9546:ef2:d3c:7abb:1b38:2659";
+
+    return(lookup);
+}

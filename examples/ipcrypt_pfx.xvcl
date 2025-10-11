@@ -1,0 +1,365 @@
+# IPCrypt-PFX
+#
+# This version uses:
+# - #const for repeated constants
+# - #inline macros for repetitive code patterns
+# - Better organization and less code duplication
+
+backend test_backend {
+    .host = "127.0.0.1";
+    .port = "8080";
+}
+
+# === CONSTANTS ===
+
+# Test keys for test vectors 1-4
+#const TEST_KEY1_A STRING = "0123456789abcdeffedcba9876543210"
+#const TEST_KEY2_A STRING = "1032547698badcfeefcdab8967452301"
+
+# Test keys for test vectors 5-16
+#const TEST_KEY1_B STRING = "2b7e151628aed2a6abf7158809cf4f3c"
+#const TEST_KEY2_B STRING = "a9f5ba40db214c3798f2e1c23456789a"
+
+# === LOOKUP TABLES ===
+
+# XOR lookup table for hex digits (256 entries: 0x0^0x0 through 0xf^0xf)
+table hex_xor STRING {
+#for a in range(16)
+#for b in range(16)
+    "{{hex(a)[2:]}}{{hex(b)[2:]}}": "{{hex(a ^ b)[2:]}}"#if not (a == 15 and b == 15)
+,#endif
+
+#endfor
+#endfor
+}
+
+# Hex digit to 4-bit binary (16 entries)
+table hex_to_bin4 STRING {
+#for i in range(16)
+    "{{hex(i)[2:]}}": "{{format(i, '04b')}}"#if i < 15
+,#endif
+
+#endfor
+}
+
+# 4-bit binary to hex digit (16 entries)
+table bin4_to_hex STRING {
+#for i in range(16)
+    "{{format(i, '04b')}}": "{{hex(i)[2:]}}"#if i < 15
+,#endif
+
+#endfor
+}
+
+# 8-bit binary to decimal string (256 entries)
+table bin8_to_dec STRING {
+#for i in range(256)
+    "{{format(i, '08b')}}": "{{i}}"#if i < 255
+,#endif
+
+#endfor
+}
+
+# === INLINE MACROS ===
+
+# Extract LSB from hex string and check if even (returns 0) or odd (returns 1)
+#inline hex_lsb_to_bit(hex_char)
+var.cipher_bit_char == "0" || var.cipher_bit_char == "2" || var.cipher_bit_char == "4" || var.cipher_bit_char == "6" || var.cipher_bit_char == "8" || var.cipher_bit_char == "a" || var.cipher_bit_char == "c" || var.cipher_bit_char == "e"
+#endinline
+
+# === HELPER FUNCTIONS ===
+
+# XOR two 128-bit hex strings
+#def xor_hex_128(a STRING, b STRING) -> STRING
+  #let result STRING = "";
+#for i in range(32)
+  set var.result = var.result + table.lookup(hex_xor, substr(a, {{i}}, 1) + substr(b, {{i}}, 1));
+#endfor
+  return var.result;
+#enddef
+
+# AES-128 ECB (using CBC with zero IV)
+#def aes_ecb_128(key STRING, input STRING) -> STRING
+  #let zero_iv STRING = "00000000000000000000000000000000";
+  #let output STRING = crypto.encrypt_hex(aes128, cbc, nopad, key, var.zero_iv, input);
+  return var.output;
+#enddef
+
+# Convert hex to binary (128-bit)
+#def hex128_to_bin128(hex128 STRING) -> STRING
+  #let bin128 STRING = "";
+#for i in range(32)
+  set var.bin128 = var.bin128 + table.lookup(hex_to_bin4, substr(hex128, {{i}}, 1));
+#endfor
+  return var.bin128;
+#enddef
+
+# Convert binary to hex (128-bit)
+#def bin128_to_hex128(bin128 STRING) -> STRING
+  #let hex128 STRING = "";
+  #let nibble STRING = "";
+#for i in range(0, 128, 4)
+  set var.nibble = substr(bin128, {{i}}, 4);
+  set var.hex128 = var.hex128 + table.lookup(bin4_to_hex, var.nibble);
+#endfor
+  return var.hex128;
+#enddef
+
+# Shift binary left one bit and append bit
+#def shift_left_append(bin128 STRING, append_bit INTEGER) -> STRING
+  #let shifted STRING = substr(bin128, 1, 127);
+  #let result STRING = "";
+  if (append_bit == 0) {
+    set var.result = var.shifted + "0";
+  } else {
+    set var.result = var.shifted + "1";
+  }
+  return var.result;
+#enddef
+
+# Convert 32-bit binary to IPv4 address string
+#def bin32_to_ipv4(bin32 STRING) -> STRING
+  #let byte0 STRING = table.lookup(bin8_to_dec, substr(bin32, 0, 8));
+  #let byte1 STRING = table.lookup(bin8_to_dec, substr(bin32, 8, 8));
+  #let byte2 STRING = table.lookup(bin8_to_dec, substr(bin32, 16, 8));
+  #let byte3 STRING = table.lookup(bin8_to_dec, substr(bin32, 24, 8));
+  #let ip_str STRING = var.byte0 + "." + var.byte1 + "." + var.byte2 + "." + var.byte3;
+  return var.ip_str;
+#enddef
+
+# Convert 128-bit binary to IPv6 address string
+#def bin128_to_ipv6(bin128 STRING) -> STRING
+  #let hex128 STRING = bin128_to_hex128(bin128);
+  #let ip_str STRING = substr(var.hex128, 0, 4) + ":" + substr(var.hex128, 4, 4) + ":" + substr(var.hex128, 8, 4) + ":" + substr(var.hex128, 12, 4) + ":" + substr(var.hex128, 16, 4) + ":" + substr(var.hex128, 20, 4) + ":" + substr(var.hex128, 24, 4) + ":" + substr(var.hex128, 28, 4);
+  return var.ip_str;
+#enddef
+
+# === MAIN ENCRYPTION FUNCTION ===
+
+# Encrypt IP address using ipcrypt-pfx
+#def ipcrypt_pfx_encrypt(input_ip IP, key1 STRING, key2 STRING) -> IP
+  #let is_ipv4 BOOL = addr.is_ipv4(input_ip);
+  #let padded_prefix STRING = "";
+  #let encrypted_bits STRING = "";
+  #let output_ip IP = std.str2ip("0.0.0.0", "0.0.0.0");
+  #let original_bit INTEGER = 0;
+  #let cipher_bit INTEGER = 0;
+  #let cipher_bit_char STRING = "";
+  #let e1 STRING = "";
+  #let e2 STRING = "";
+  #let e STRING = "";
+  #let bin128 STRING = "";
+  #let ip_str STRING = "";
+
+  if (var.is_ipv4) {
+    # IPv4 mode: encrypt only last 32 bits
+    set var.padded_prefix = "0000000100000000000000000000ffff";
+    set var.encrypted_bits = "";
+    log "ipcrypt-pfx: IPv4 mode (32 iterations)";
+  } else {
+    # IPv6 mode: encrypt all 128 bits
+    set var.padded_prefix = "00000000000000000000000000000001";
+    set var.encrypted_bits = "";
+    log "ipcrypt-pfx: IPv6 mode (128 iterations)";
+  }
+
+  if (var.is_ipv4) {
+    # === IPv4 PATH: 32 iterations ===
+#for bit_idx in range(32)
+
+    # Extract bit {{31 - bit_idx}} directly (addr.extract_bits requires literal position)
+    set var.original_bit = addr.extract_bits(input_ip, {{31 - bit_idx}}, 1);
+
+    # Encrypt padded_prefix with K1
+    set var.e1 = aes_ecb_128(key1, var.padded_prefix);
+
+    # Encrypt padded_prefix with K2
+    set var.e2 = aes_ecb_128(key2, var.padded_prefix);
+
+    # XOR the two AES outputs
+    set var.e = xor_hex_128(var.e1, var.e2);
+
+    # Extract LSB (last hex digit, check if even/odd)
+    set var.cipher_bit_char = substr(var.e, 31, 1);
+    if (hex_lsb_to_bit(var.cipher_bit_char)) {
+      set var.cipher_bit = 0;
+    } else {
+      set var.cipher_bit = 1;
+    }
+
+    # XOR cipher_bit with original_bit
+    if (var.original_bit == var.cipher_bit) {
+      set var.encrypted_bits = var.encrypted_bits + "0";
+    } else {
+      set var.encrypted_bits = var.encrypted_bits + "1";
+    }
+
+    # Update padded_prefix: convert to binary, shift left, append original_bit, convert back to hex
+    set var.bin128 = hex128_to_bin128(var.padded_prefix);
+    set var.bin128 = shift_left_append(var.bin128, var.original_bit);
+    set var.padded_prefix = bin128_to_hex128(var.bin128);
+#endfor
+
+    # Convert 32-bit result to IPv4
+    set var.ip_str = bin32_to_ipv4(var.encrypted_bits);
+    set var.output_ip = std.str2ip(var.ip_str, "0.0.0.0");
+
+  } else {
+    # === IPv6 PATH: 128 iterations ===
+#for bit_idx in range(128)
+
+    # Extract bit {{127 - bit_idx}} directly (addr.extract_bits requires literal position)
+    set var.original_bit = addr.extract_bits(input_ip, {{127 - bit_idx}}, 1);
+
+    # Encrypt padded_prefix with K1
+    set var.e1 = aes_ecb_128(key1, var.padded_prefix);
+
+    # Encrypt padded_prefix with K2
+    set var.e2 = aes_ecb_128(key2, var.padded_prefix);
+
+    # XOR the two AES outputs
+    set var.e = xor_hex_128(var.e1, var.e2);
+
+    # Extract LSB
+    set var.cipher_bit_char = substr(var.e, 31, 1);
+    if (hex_lsb_to_bit(var.cipher_bit_char)) {
+      set var.cipher_bit = 0;
+    } else {
+      set var.cipher_bit = 1;
+    }
+
+    # XOR cipher_bit with original_bit
+    if (var.original_bit == var.cipher_bit) {
+      set var.encrypted_bits = var.encrypted_bits + "0";
+    } else {
+      set var.encrypted_bits = var.encrypted_bits + "1";
+    }
+
+    # Update padded_prefix
+    set var.bin128 = hex128_to_bin128(var.padded_prefix);
+    set var.bin128 = shift_left_append(var.bin128, var.original_bit);
+    set var.padded_prefix = bin128_to_hex128(var.bin128);
+#endfor
+
+    # Convert 128-bit result to IPv6
+    set var.ip_str = bin128_to_ipv6(var.encrypted_bits);
+    set var.output_ip = std.str2ip(var.ip_str, "::");
+  }
+
+  return var.output_ip;
+#enddef
+
+# === TEST HARNESS ===
+
+sub vcl_recv {
+    #FASTLY RECV
+
+    declare local var.input_ip IP;
+    declare local var.output_ip IP;
+    declare local var.expected STRING;
+
+    log "=== IPCrypt-PFX Test Vectors (draft-denis-ipcrypt) ===";
+    log "=== Testing all 16 official test vectors ===";
+    log "";
+
+    # Test vector 1: IPv4 0.0.0.0
+    set var.input_ip = std.str2ip("0.0.0.0", "0.0.0.0");
+    set var.output_ip = ipcrypt_pfx_encrypt(var.input_ip, "{{TEST_KEY1_A}}", "{{TEST_KEY2_A}}");
+    set var.expected = "151.82.155.134";
+    log "Test 1: 0.0.0.0 -> " + std.ip2str(var.output_ip) + " (expected: " + var.expected + ")";
+
+    # Test vector 2: IPv4 255.255.255.255
+    set var.input_ip = std.str2ip("255.255.255.255", "0.0.0.0");
+    set var.output_ip = ipcrypt_pfx_encrypt(var.input_ip, "{{TEST_KEY1_A}}", "{{TEST_KEY2_A}}");
+    set var.expected = "94.185.169.89";
+    log "Test 2: 255.255.255.255 -> " + std.ip2str(var.output_ip) + " (expected: " + var.expected + ")";
+
+    # Test vector 3: IPv4 192.0.2.1
+    set var.input_ip = std.str2ip("192.0.2.1", "0.0.0.0");
+    set var.output_ip = ipcrypt_pfx_encrypt(var.input_ip, "{{TEST_KEY1_A}}", "{{TEST_KEY2_A}}");
+    set var.expected = "100.115.72.131";
+    log "Test 3: 192.0.2.1 -> " + std.ip2str(var.output_ip) + " (expected: " + var.expected + ")";
+
+    # Test vector 4: IPv6 2001:db8::1
+    set var.input_ip = std.str2ip("2001:db8::1", "::");
+    set var.output_ip = ipcrypt_pfx_encrypt(var.input_ip, "{{TEST_KEY1_A}}", "{{TEST_KEY2_A}}");
+    set var.expected = "c180:5dd4:2587:3524:30ab:fa65:6ab6:f88";
+    log "Test 4: 2001:db8::1 -> " + std.ip2str(var.output_ip) + " (expected: " + var.expected + ")";
+
+    # Test vector 5: IPv4 10.0.0.47
+    set var.input_ip = std.str2ip("10.0.0.47", "0.0.0.0");
+    set var.output_ip = ipcrypt_pfx_encrypt(var.input_ip, "{{TEST_KEY1_B}}", "{{TEST_KEY2_B}}");
+    set var.expected = "19.214.210.244";
+    log "Test 5: 10.0.0.47 -> " + std.ip2str(var.output_ip) + " (expected: " + var.expected + ")";
+
+    # Test vector 6: IPv4 10.0.0.129
+    set var.input_ip = std.str2ip("10.0.0.129", "0.0.0.0");
+    set var.output_ip = ipcrypt_pfx_encrypt(var.input_ip, "{{TEST_KEY1_B}}", "{{TEST_KEY2_B}}");
+    set var.expected = "19.214.210.80";
+    log "Test 6: 10.0.0.129 -> " + std.ip2str(var.output_ip) + " (expected: " + var.expected + ")";
+
+    # Test vector 7: IPv4 10.0.0.234
+    set var.input_ip = std.str2ip("10.0.0.234", "0.0.0.0");
+    set var.output_ip = ipcrypt_pfx_encrypt(var.input_ip, "{{TEST_KEY1_B}}", "{{TEST_KEY2_B}}");
+    set var.expected = "19.214.210.30";
+    log "Test 7: 10.0.0.234 -> " + std.ip2str(var.output_ip) + " (expected: " + var.expected + ")";
+
+    # Test vector 8: IPv4 172.16.5.193
+    set var.input_ip = std.str2ip("172.16.5.193", "0.0.0.0");
+    set var.output_ip = ipcrypt_pfx_encrypt(var.input_ip, "{{TEST_KEY1_B}}", "{{TEST_KEY2_B}}");
+    set var.expected = "210.78.229.136";
+    log "Test 8: 172.16.5.193 -> " + std.ip2str(var.output_ip) + " (expected: " + var.expected + ")";
+
+    # Test vector 9: IPv4 172.16.97.42
+    set var.input_ip = std.str2ip("172.16.97.42", "0.0.0.0");
+    set var.output_ip = ipcrypt_pfx_encrypt(var.input_ip, "{{TEST_KEY1_B}}", "{{TEST_KEY2_B}}");
+    set var.expected = "210.78.179.241";
+    log "Test 9: 172.16.97.42 -> " + std.ip2str(var.output_ip) + " (expected: " + var.expected + ")";
+
+    # Test vector 10: IPv4 172.16.248.177
+    set var.input_ip = std.str2ip("172.16.248.177", "0.0.0.0");
+    set var.output_ip = ipcrypt_pfx_encrypt(var.input_ip, "{{TEST_KEY1_B}}", "{{TEST_KEY2_B}}");
+    set var.expected = "210.78.121.215";
+    log "Test 10: 172.16.248.177 -> " + std.ip2str(var.output_ip) + " (expected: " + var.expected + ")";
+
+    # Test vector 11: IPv6 2001:db8::a5c9:4e2f:bb91:5a7d
+    set var.input_ip = std.str2ip("2001:db8::a5c9:4e2f:bb91:5a7d", "::");
+    set var.output_ip = ipcrypt_pfx_encrypt(var.input_ip, "{{TEST_KEY1_B}}", "{{TEST_KEY2_B}}");
+    set var.expected = "7cec:702c:1243:f70:1956:125:b9bd:1aba";
+    log "Test 11: 2001:db8::a5c9:4e2f:bb91:5a7d -> " + std.ip2str(var.output_ip) + " (expected: " + var.expected + ")";
+
+    # Test vector 12: IPv6 2001:db8::7234:d8f1:3c6e:9a52
+    set var.input_ip = std.str2ip("2001:db8::7234:d8f1:3c6e:9a52", "::");
+    set var.output_ip = ipcrypt_pfx_encrypt(var.input_ip, "{{TEST_KEY1_B}}", "{{TEST_KEY2_B}}");
+    set var.expected = "7cec:702c:1243:f70:a3ef:c8e:95c1:cd0d";
+    log "Test 12: 2001:db8::7234:d8f1:3c6e:9a52 -> " + std.ip2str(var.output_ip) + " (expected: " + var.expected + ")";
+
+    # Test vector 13: IPv6 2001:db8::f1e0:937b:26d4:8c1a
+    set var.input_ip = std.str2ip("2001:db8::f1e0:937b:26d4:8c1a", "::");
+    set var.output_ip = ipcrypt_pfx_encrypt(var.input_ip, "{{TEST_KEY1_B}}", "{{TEST_KEY2_B}}");
+    set var.expected = "7cec:702c:1243:f70:443c:c8e:6a62:b64d";
+    log "Test 13: 2001:db8::f1e0:937b:26d4:8c1a -> " + std.ip2str(var.output_ip) + " (expected: " + var.expected + ")";
+
+    # Test vector 14: IPv6 2001:db8:3a5c:0:e7d1:4b9f:2c8a:f673
+    set var.input_ip = std.str2ip("2001:db8:3a5c:0:e7d1:4b9f:2c8a:f673", "::");
+    set var.output_ip = ipcrypt_pfx_encrypt(var.input_ip, "{{TEST_KEY1_B}}", "{{TEST_KEY2_B}}");
+    set var.expected = "7cec:702c:3503:bef:e616:96bd:be33:a9b9";
+    log "Test 14: 2001:db8:3a5c:0:e7d1:4b9f:2c8a:f673 -> " + std.ip2str(var.output_ip) + " (expected: " + var.expected + ")";
+
+    # Test vector 15: IPv6 2001:db8:9f27:0:b4e2:7a3d:5f91:c8e6
+    set var.input_ip = std.str2ip("2001:db8:9f27:0:b4e2:7a3d:5f91:c8e6", "::");
+    set var.output_ip = ipcrypt_pfx_encrypt(var.input_ip, "{{TEST_KEY1_B}}", "{{TEST_KEY2_B}}");
+    set var.expected = "7cec:702c:a504:b74e:194a:3d90:b047:2d1a";
+    log "Test 15: 2001:db8:9f27:0:b4e2:7a3d:5f91:c8e6 -> " + std.ip2str(var.output_ip) + " (expected: " + var.expected + ")";
+
+    # Test vector 16: IPv6 2001:db8:d8b4:0:193c:a5e7:8b2f:46d1
+    set var.input_ip = std.str2ip("2001:db8:d8b4:0:193c:a5e7:8b2f:46d1", "::");
+    set var.output_ip = ipcrypt_pfx_encrypt(var.input_ip, "{{TEST_KEY1_B}}", "{{TEST_KEY2_B}}");
+    set var.expected = "7cec:702c:f840:aa67:1b8:e84f:ac9d:77fb";
+    log "Test 16: 2001:db8:d8b4:0:193c:a5e7:8b2f:46d1 -> " + std.ip2str(var.output_ip) + " (expected: " + var.expected + ")";
+
+    log "";
+    log "=== All 16 test vectors completed ===";
+
+    error 200;
+}
