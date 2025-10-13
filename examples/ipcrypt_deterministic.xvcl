@@ -156,6 +156,8 @@ sub ipcrypt_deterministic_decrypt {
 # === TEST SUBROUTINE ===
 
 sub vcl_recv {
+    #FASTLY RECV
+
     # Test ipcrypt-deterministic with test vectors
 
     # Test vector 1: 0.0.0.0
