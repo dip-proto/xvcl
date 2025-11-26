@@ -856,6 +856,35 @@ class XVCLCompiler:
         else:
             self.output.append(processed_set)
 
+    def _count_unquoted_parens(self, text: str) -> int:
+        """
+        Count parentheses balance, ignoring those inside string literals.
+        Returns positive number for more opens than closes.
+        """
+        depth = 0
+        in_string = False
+        string_char = None
+        i = 0
+        while i < len(text):
+            char = text[i]
+            if in_string:
+                if char == "\\" and i + 1 < len(text):
+                    # Skip escaped character
+                    i += 2
+                    continue
+                elif char == string_char:
+                    in_string = False
+            else:
+                if char in ('"', "'"):
+                    in_string = True
+                    string_char = char
+                elif char == "(":
+                    depth += 1
+                elif char == ")":
+                    depth -= 1
+            i += 1
+        return depth
+
     def _join_multiline_function_calls(self, lines: list[str]) -> list[str]:
         """
         Join multi-line function calls into single lines.
@@ -879,8 +908,8 @@ class XVCLCompiler:
                 i += 1
                 continue
 
-            # Count parentheses to see if they balance on this line
-            paren_depth = line.count("(") - line.count(")")
+            # Count parentheses (ignoring those in strings) to see if they balance
+            paren_depth = self._count_unquoted_parens(line)
 
             if paren_depth == 0:
                 # Balanced on this line, no joining needed
@@ -895,7 +924,7 @@ class XVCLCompiler:
             while i < len(lines) and paren_depth > 0:
                 next_line = lines[i]
                 accumulated.append(next_line)
-                paren_depth += next_line.count("(") - next_line.count(")")
+                paren_depth += self._count_unquoted_parens(next_line)
                 i += 1
 
             # Join the accumulated lines
@@ -912,7 +941,8 @@ class XVCLCompiler:
 
             joined = " ".join(joined_parts)
 
-            # Normalize multiple spaces to single spaces
+            # Normalize multiple spaces to single spaces (but not inside strings)
+            # Simple approach: just normalize outside of obvious string contexts
             joined = re.sub(r"\s+", " ", joined)
 
             # Add back the original indentation
@@ -1085,24 +1115,44 @@ class XVCLCompiler:
         return line
 
     def _parse_macro_args(self, args_str: str) -> list[str]:
-        """Parse macro arguments, handling nested parentheses."""
+        """Parse macro arguments, handling nested parentheses and strings."""
         args = []
         current_arg = []
         depth = 0
+        in_string = False
+        string_char = None
+        i = 0
 
-        for char in args_str:
-            if char == "(":
-                depth += 1
+        while i < len(args_str):
+            char = args_str[i]
+
+            if in_string:
                 current_arg.append(char)
-            elif char == ")":
-                depth -= 1
-                current_arg.append(char)
-            elif char == "," and depth == 0:
-                # End of current argument
-                args.append("".join(current_arg).strip())
-                current_arg = []
+                if char == "\\" and i + 1 < len(args_str):
+                    # Include escaped character
+                    current_arg.append(args_str[i + 1])
+                    i += 2
+                    continue
+                elif char == string_char:
+                    in_string = False
             else:
-                current_arg.append(char)
+                if char in ('"', "'"):
+                    in_string = True
+                    string_char = char
+                    current_arg.append(char)
+                elif char == "(":
+                    depth += 1
+                    current_arg.append(char)
+                elif char == ")":
+                    depth -= 1
+                    current_arg.append(char)
+                elif char == "," and depth == 0:
+                    # End of current argument
+                    args.append("".join(current_arg).strip())
+                    current_arg = []
+                else:
+                    current_arg.append(char)
+            i += 1
 
         # Add last argument
         if current_arg:
@@ -1167,7 +1217,10 @@ class XVCLCompiler:
         except SyntaxError as e:
             raise self.make_error(str(e))
 
-        self.log_debug(f"Loop iterating {len(list(iterable))} times", indent=2)
+        # Convert to list to allow multiple iterations and length check
+        # (needed if iterable is a generator)
+        iterable = list(iterable)
+        self.log_debug(f"Loop iterating {len(iterable)} times", indent=2)
 
         for idx, value in enumerate(iterable):
             self.log_debug(f"Iteration {idx}: {var_name} = {value}", indent=3)
@@ -1231,7 +1284,8 @@ class XVCLCompiler:
         depth = 0
         for i in range(start, end):
             stripped = lines[i].strip()
-            if stripped.startswith(open_keyword):
+            # Check for open keyword with word boundary (followed by space or end of line)
+            if stripped == open_keyword or stripped.startswith(open_keyword + " "):
                 depth += 1
             elif stripped == close_keyword:
                 depth -= 1
