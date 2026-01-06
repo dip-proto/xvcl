@@ -1,0 +1,17 @@
+// Test: Local variables with #let
+sub vcl_recv {
+    // Simple let with string
+    #let timestamp STRING = std.time(now, now);
+    set req.http.X-Timestamp = var.timestamp;
+
+    // Let with integer
+    #let counter INTEGER = 42;
+    set req.http.X-Counter = var.counter;
+
+    // Let inside conditionals
+    #const USE_CACHE = true
+    #if USE_CACHE
+    #let cache_key STRING = req.url.path;
+    set req.hash = var.cache_key;
+    #endif
+}

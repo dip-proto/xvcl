@@ -1,0 +1,6 @@
+// ERROR: Cannot unpack non-iterable value
+#const ITEMS = [1, 2, 3]
+
+#for a, b in ITEMS
+// Should fail: integers are not iterable
+#endfor

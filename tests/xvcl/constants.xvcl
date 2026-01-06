@@ -1,0 +1,18 @@
+// Test: Constants and template expressions
+#const NAME = "example"
+#const PORT = 443
+#const ENABLED = true
+#const RATIO = 0.75
+
+backend {{NAME}} {
+    .port = "{{PORT}}";
+}
+
+// Expression: boolean
+#if ENABLED
+set req.http.X-Enabled = "yes";
+#endif
+
+// Expression: arithmetic
+#const DOUBLE_PORT = PORT * 2
+set req.http.X-Port = "{{DOUBLE_PORT}}";

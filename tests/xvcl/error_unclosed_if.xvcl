@@ -1,0 +1,4 @@
+// ERROR: No matching #endif
+#const DEBUG = true
+#if DEBUG
+set req.http.X-Debug = "yes";

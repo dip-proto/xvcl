@@ -1,0 +1,6 @@
+// ERROR: Cannot unpack 3 values into 2 variables
+#const BAD = [("a", 1, 2), ("b", 3)]
+
+#for x, y in BAD
+// Should fail on first iteration (3 values, 2 vars)
+#endfor

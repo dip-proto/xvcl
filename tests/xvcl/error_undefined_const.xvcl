@@ -1,0 +1,2 @@
+// ERROR: is not defined
+set req.http.X-Test = "{{UNDEFINED_CONSTANT}}";

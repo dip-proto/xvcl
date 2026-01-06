@@ -1,0 +1,4 @@
+// ERROR: cannot be interpreted as an integer
+#for i in range("abc")
+backend web{{i}} { }
+#endfor

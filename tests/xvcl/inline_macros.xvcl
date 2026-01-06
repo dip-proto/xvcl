@@ -1,0 +1,20 @@
+// Test: Inline macros
+#inline set_header(header_name, header_value)
+set req.http.{{header_name}} = {{header_value}};
+#endinline
+
+// Use macro with string literal
+set_header("X-Custom", "\"hello\"")
+
+// Use macro with expression
+set_header("X-Other", "req.http.Host")
+
+// Multi-line macro
+#inline backend_def(backend_name, backend_host, backend_port)
+backend {{backend_name}} {
+    .host = "{{backend_host}}";
+    .port = "{{backend_port}}";
+}
+#endinline
+
+backend_def("origin", "origin.example.com", "443")

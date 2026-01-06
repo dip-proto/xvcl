@@ -1,0 +1,32 @@
+// Test: Conditional compilation
+#const ENV = "production"
+#const DEBUG = false
+#const VERSION = 2
+
+// Simple if
+#if DEBUG
+set req.http.X-Debug = "enabled";
+#endif
+
+// If-else
+#if ENV == "production"
+set req.http.X-Env = "prod";
+#else
+set req.http.X-Env = "dev";
+#endif
+
+// If-elif-else
+#if VERSION == 1
+set req.http.X-Version = "v1";
+#elif VERSION == 2
+set req.http.X-Version = "v2";
+#else
+set req.http.X-Version = "unknown";
+#endif
+
+// Nested conditionals
+#if ENV == "production"
+#if VERSION >= 2
+set req.http.X-Feature = "new";
+#endif
+#endif

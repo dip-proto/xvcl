@@ -1,0 +1,22 @@
+// Test: For loops with range and lists
+#const SERVERS = ["web1", "web2", "web3"]
+
+// Basic for loop with list
+#for server in SERVERS
+backend {{server}} { }
+#endfor
+
+// For loop with range
+#for i in range(3)
+set req.http.X-Index-{{i}} = "{{i}}";
+#endfor
+
+// For loop with range(start, end)
+#for i in range(5, 8)
+set req.http.X-Range-{{i}} = "value";
+#endfor
+
+// For loop with enumerate
+#for idx, server in enumerate(SERVERS)
+set req.http.X-Server-{{idx}} = "{{server}}";
+#endfor

@@ -1,0 +1,3 @@
+// ERROR: No matching #endfor
+#for i in range(3)
+backend web{{i}} { }

@@ -1,0 +1,26 @@
+// Test: Tuple unpacking in for loops
+#const PAIRS = [("a", 1), ("b", 2)]
+
+// Two-element tuples
+#for key, val in PAIRS
+backend {{key}} { .port = "{{val}}"; }
+#endfor
+
+// Three-element tuples
+#const TRIPLES = [("us", "east", 443), ("eu", "west", 8443)]
+
+#for region, zone, port in TRIPLES
+backend {{region}}_{{zone}} { .port = "{{port}}"; }
+#endfor
+
+// Enumerate with tuple unpacking
+#const NAMES = ["alice", "bob"]
+
+#for idx, name in enumerate(NAMES)
+set req.http.X-User-{{idx}} = "{{name}}";
+#endfor
+
+// Backward compatibility: single variable
+#for i in range(2)
+backend web{{i}} { }
+#endfor
