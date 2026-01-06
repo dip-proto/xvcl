@@ -44,16 +44,19 @@ set req.http.X-Value = "{{PORT * 2}}";
 
 ```vcl
 #for variable in iterable
-  // code to repeat
-#endfor
+#for var1, var2 in iterable   // tuple unpacking
 
 // Examples:
 #for i in range(5)
   backend web{{i}} { ... }
 #endfor
 
-#for name in ["web1", "web2", "web3"]
-  backend {{name}} { ... }
+#for name, port in [("web", 80), ("api", 8080)]
+  backend {{name}} { .port = "{{port}}"; }
+#endfor
+
+#for idx, name in enumerate(NAMES)
+  set req.http.X-{{idx}} = "{{name}}";
 #endfor
 ```
 

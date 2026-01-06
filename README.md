@@ -303,6 +303,10 @@ Generate repetitive VCL code by iterating over ranges or lists.
 #for variable in iterable
   // Code to repeat
 #endfor
+
+#for var1, var2 in iterable
+  // Tuple unpacking
+#endfor
 ```
 
 **Example 1: Range-based loop**
@@ -357,6 +361,29 @@ backend {{region}}_{{env}} {
   .port = "443";
 }
   #endfor
+#endfor
+```
+
+**Example 4: Tuple unpacking**
+
+```vcl
+#const BACKENDS = [("web", 8080), ("api", 9000), ("admin", 9001)]
+
+#for name, port in BACKENDS
+backend F_{{name}} {
+  .host = "{{name}}.example.com";
+  .port = "{{port}}";
+}
+#endfor
+```
+
+**Example 5: With enumerate**
+
+```vcl
+#const REGIONS = ["us-east", "us-west", "eu-west"]
+
+#for idx, region in enumerate(REGIONS)
+set req.http.X-Region-{{idx}} = "{{region}}";
 #endfor
 ```
 

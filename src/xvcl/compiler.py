@@ -1211,15 +1211,21 @@ class XVCLCompiler:
     def _process_for_loop(
         self, lines: list[str], start: int, end: int, context: dict[str, Any]
     ) -> int:
-        """Process a #for loop."""
+        """Process a #for loop with optional tuple unpacking."""
         line = lines[start].strip()
 
-        match = re.match(r"#for\s+(\w+)\s+in\s+(.+)", line)
+        match = re.match(r"#for\s+(\w+(?:\s*,\s*\w+)*)\s+in\s+(.+)", line)
         if not match:
             raise self.make_error(f"Invalid #for syntax: {line}")
 
-        var_name = match.group(1)
+        vars_str = match.group(1).strip()
         iterable_expr = match.group(2)
+
+        var_names = [v.strip() for v in vars_str.split(",")] if "," in vars_str else [vars_str]
+
+        for var_name in var_names:
+            if not re.match(r"^\w+$", var_name):
+                raise self.make_error(f"Invalid variable name in #for: '{var_name}'")
 
         try:
             iterable = self._evaluate_expression(iterable_expr, context)
@@ -1231,15 +1237,37 @@ class XVCLCompiler:
         except SyntaxError as e:
             raise self.make_error(str(e))
 
-        # Convert to list to allow multiple iterations and length check
-        # (needed if iterable is a generator)
         iterable = list(iterable)
         self.log_debug(f"Loop iterating {len(iterable)} times", indent=2)
 
         for idx, value in enumerate(iterable):
-            self.log_debug(f"Iteration {idx}: {var_name} = {value}", indent=3)
             loop_context = context.copy()
-            loop_context[var_name] = value
+
+            if len(var_names) == 1:
+                loop_context[var_names[0]] = value
+                self.log_debug(f"Iteration {idx}: {var_names[0]} = {value}", indent=3)
+            else:
+                try:
+                    values = tuple(value)
+                except TypeError:
+                    raise self.make_error(
+                        f"Cannot unpack non-iterable value '{value}' into {len(var_names)} variables"
+                    )
+
+                if len(values) != len(var_names):
+                    raise self.make_error(
+                        f"Cannot unpack {len(values)} values into {len(var_names)} variables "
+                        f"({', '.join(var_names)})"
+                    )
+
+                for var_name, val in zip(var_names, values):
+                    loop_context[var_name] = val
+
+                self.log_debug(
+                    f"Iteration {idx}: {', '.join(f'{n}={v}' for n, v in zip(var_names, values))}",
+                    indent=3,
+                )
+
             self._process_lines(lines, start + 1, loop_end, loop_context)
 
         return loop_end + 1
