@@ -1,0 +1,61 @@
+// Test: Advanced macro features
+
+// Macro with operator precedence
+#inline double(x)
+x + x
+#endinline
+
+#inline square(x)
+x * x
+#endinline
+
+// Nested macros
+#inline add(a, b)
+a + b
+#endinline
+
+#inline mul(a, b)
+a * b
+#endinline
+
+// Macro with string operations
+#inline prefix(s)
+"prefix_" + s
+#endinline
+
+#inline suffix(s)
+s + "_suffix"
+#endinline
+
+// Macro with VCL function calls
+#inline normalize(host)
+std.tolower(regsub(host, "^www\\.", ""))
+#endinline
+
+#inline hash_key(url, host)
+digest.hash_md5(url + "|" + host)
+#endinline
+
+sub vcl_recv {
+    declare local var.result INTEGER;
+
+    // Test operator precedence: should be (5 + 5) * 10 = 100
+    set var.result = double(5) * 10;
+
+    // Test square with expression: should be ((2 + 3) * (2 + 3))
+    set var.result = square(2 + 3);
+
+    // Test nested macro calls
+    set var.result = add(mul(2, 3), mul(4, 5));
+
+    declare local var.str STRING;
+
+    // Test string macros
+    set var.str = prefix("name");
+    set var.str = suffix("name");
+    set var.str = prefix(suffix("name"));
+
+    // Test VCL function macros
+    set req.http.X-Normalized = normalize(req.http.Host);
+    set req.http.X-Hash = hash_key(req.url, req.http.Host);
+}

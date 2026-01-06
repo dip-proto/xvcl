@@ -1,0 +1,8 @@
+// ERROR: already defined
+#inline dup(x)
+x
+#endinline
+
+#inline dup(x)
+x * 2
+#endinline

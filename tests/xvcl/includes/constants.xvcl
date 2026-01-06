@@ -1,0 +1,4 @@
+// Shared constants
+#const SHARED_PORT = 8080
+#const SHARED_HOST = "api.example.com"
+#const SHARED_TTL = 3600

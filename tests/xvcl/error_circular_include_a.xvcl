@@ -1,0 +1,2 @@
+// ERROR: Circular include detected
+#include "includes/circular_a.xvcl"

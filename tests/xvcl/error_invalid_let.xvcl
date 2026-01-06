@@ -1,0 +1,4 @@
+// ERROR: Invalid #let syntax
+sub vcl_recv {
+    #let broken
+}

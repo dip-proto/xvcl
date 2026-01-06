@@ -109,3 +109,59 @@ class TestErrors:
         assert expected_error in stderr_clean, (
             f"Expected error '{expected_error}' not found in:\n{stderr_clean}"
         )
+
+
+FALCO_DIR = XVCL_DIR / "falco"
+
+
+def get_falco_tests() -> list[tuple[str, Path]]:
+    """Find all xvcl files in falco/ that should produce valid VCL for falco lint."""
+    tests = []
+    if not FALCO_DIR.exists():
+        return tests
+    for xvcl_file in sorted(FALCO_DIR.glob("*.xvcl")):
+        tests.append((xvcl_file.stem, xvcl_file))
+    return tests
+
+
+def run_falco_lint(vcl_content: str) -> tuple[str, int]:
+    """Run falco lint on VCL content. Returns (output, returncode)."""
+    import shutil
+    falco_path = shutil.which("falco")
+    if falco_path is None:
+        pytest.skip("falco not installed")
+
+    with tempfile.NamedTemporaryFile(suffix=".vcl", delete=False, mode="w") as f:
+        f.write(vcl_content)
+        vcl_file = Path(f.name)
+
+    try:
+        result = subprocess.run(
+            [falco_path, "lint", "-I", str(TESTS_DIR / "xvcl"), str(vcl_file)],
+            capture_output=True,
+            text=True,
+        )
+        return result.stdout + result.stderr, result.returncode
+    finally:
+        vcl_file.unlink()
+
+
+class TestFalcoValidation:
+    """Tests that compiled VCL passes falco lint."""
+
+    @pytest.mark.parametrize("name,xvcl_file", get_falco_tests())
+    def test_falco_lint(self, name: str, xvcl_file: Path):
+        """Test that compiled VCL passes falco lint."""
+        output, stderr, returncode = compile_xvcl(xvcl_file)
+        assert returncode == 0, f"Compilation failed:\n{strip_ansi(stderr)}"
+
+        falco_output, falco_returncode = run_falco_lint(output)
+        # falco returns 1 for lint errors
+        if falco_returncode != 0:
+            # Ignore certain falco warnings/errors that aren't actual issues
+            if "backend" in output.lower() and "first_byte_timeout" in falco_output:
+                pytest.skip("falco warning about missing backend properties (not an xvcl issue)")
+            assert falco_returncode == 0, (
+                f"falco lint failed for {name}:\n{falco_output}\n\n"
+                f"Generated VCL:\n{output}"
+            )

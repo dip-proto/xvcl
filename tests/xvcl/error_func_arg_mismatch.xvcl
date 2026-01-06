@@ -1,0 +1,9 @@
+// ERROR: expects 2 arguments
+#def add(a INTEGER, b INTEGER) -> INTEGER
+    return a + b;
+#enddef
+
+sub vcl_recv {
+    declare local var.x INTEGER;
+    set var.x = add(1);
+}

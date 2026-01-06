@@ -1,0 +1,24 @@
+// Test: Multi-line function calls
+#def process(input STRING, prefix STRING, suffix STRING) -> STRING
+    declare local var.result STRING;
+    set var.result = prefix + input + suffix;
+    return var.result;
+#enddef
+
+sub vcl_recv {
+    declare local var.result STRING;
+
+    // Multi-line function call
+    set var.result = process(
+        req.http.Host,
+        "prefix_",
+        "_suffix"
+    );
+
+    // Another multi-line call with more complex args
+    set var.result = process(
+        "input_string",
+        "<<",
+        ">>"
+    );
+}

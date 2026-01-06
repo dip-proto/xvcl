@@ -1,0 +1,53 @@
+// Falco test: Inline macros
+
+backend F_origin {
+    .host = "origin.example.com";
+    .port = "443";
+    .connect_timeout = 5s;
+    .first_byte_timeout = 30s;
+    .between_bytes_timeout = 10s;
+}
+
+#inline normalize_host(host)
+std.tolower(regsub(host, "^www\\.", ""))
+#endinline
+
+#inline cache_key(path, host)
+digest.hash_md5(path + "|" + host)
+#endinline
+
+#inline is_static(url)
+url ~ "\\.(jpg|png|gif|css|js|ico)$"
+#endinline
+
+sub vcl_recv {
+    #FASTLY recv
+
+    declare local var.normalized_host STRING;
+    set var.normalized_host = normalize_host(req.http.Host);
+
+    declare local var.key STRING;
+    set var.key = cache_key(req.url.path, req.http.Host);
+    set req.http.X-Cache-Key = var.key;
+
+    if (is_static(req.url.path)) {
+        set req.http.X-Static = "true";
+    }
+
+    return(lookup);
+}
+
+sub vcl_hash {
+    #FASTLY hash
+}
+
+sub vcl_fetch {
+    #FASTLY fetch
+    set beresp.ttl = 300s;
+    return(deliver);
+}
+
+sub vcl_deliver {
+    #FASTLY deliver
+    return(deliver);
+}

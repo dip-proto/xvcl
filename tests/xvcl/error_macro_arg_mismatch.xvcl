@@ -1,0 +1,8 @@
+// ERROR: expects 2 arguments
+#inline add(a, b)
+a + b
+#endinline
+
+sub vcl_recv {
+    set req.http.X-Value = add(1);
+}

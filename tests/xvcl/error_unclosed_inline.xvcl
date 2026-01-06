@@ -1,0 +1,4 @@
+// ERROR: No matching #endinline
+#inline broken_macro(x)
+x + x
+// missing #endinline

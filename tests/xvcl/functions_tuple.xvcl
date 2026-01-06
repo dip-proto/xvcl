@@ -1,0 +1,53 @@
+// Test: Functions with tuple return values
+#def divmod(a INTEGER, b INTEGER) -> (INTEGER, INTEGER)
+    declare local var.quotient INTEGER;
+    declare local var.remainder INTEGER;
+    set var.quotient = a / b;
+    set var.remainder = a % b;
+    return var.quotient, var.remainder;
+#enddef
+
+#def parse_pair(s STRING) -> (STRING, STRING)
+    declare local var.key STRING;
+    declare local var.value STRING;
+    set var.key = regsub(s, ":.*", "");
+    set var.value = regsub(s, "^[^:]*:", "");
+    return var.key, var.value;
+#enddef
+
+#def get_stats(a INTEGER, b INTEGER, c INTEGER) -> (INTEGER, INTEGER, INTEGER)
+    declare local var.min INTEGER;
+    declare local var.max INTEGER;
+    declare local var.sum INTEGER;
+    if (a < b && a < c) {
+        set var.min = a;
+    } else if (b < c) {
+        set var.min = b;
+    } else {
+        set var.min = c;
+    }
+    if (a > b && a > c) {
+        set var.max = a;
+    } else if (b > c) {
+        set var.max = b;
+    } else {
+        set var.max = c;
+    }
+    set var.sum = a + b + c;
+    return var.min, var.max, var.sum;
+#enddef
+
+sub vcl_recv {
+    declare local var.q INTEGER;
+    declare local var.r INTEGER;
+    set var.q, var.r = divmod(17, 5);
+
+    declare local var.key STRING;
+    declare local var.value STRING;
+    set var.key, var.value = parse_pair("name:john");
+
+    declare local var.min INTEGER;
+    declare local var.max INTEGER;
+    declare local var.sum INTEGER;
+    set var.min, var.max, var.sum = get_stats(10, 5, 20);
+}

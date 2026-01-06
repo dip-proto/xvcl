@@ -1,0 +1,8 @@
+// Shared macros
+#inline add_header(name, value)
+set req.http.{{name}} = {{value}};
+#endinline
+
+#inline log_request(level)
+log "syslog " + {{level}} + " :: request received";
+#endinline

@@ -1,0 +1,3 @@
+// Circular include - part B
+#include "circular_a.xvcl"
+set req.http.X-From-B = "b";

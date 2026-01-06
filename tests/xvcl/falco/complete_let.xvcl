@@ -1,0 +1,35 @@
+// Falco test: Let variables
+
+backend F_origin {
+    .host = "origin.example.com";
+    .port = "443";
+    .connect_timeout = 5s;
+    .first_byte_timeout = 30s;
+    .between_bytes_timeout = 10s;
+}
+
+sub vcl_recv {
+    #FASTLY recv
+
+    #let request_id STRING = uuid.version4();
+    set req.http.X-Request-ID = var.request_id;
+
+    #let counter INTEGER = 0;
+    set req.http.X-Counter = var.counter;
+
+    #let timestamp STRING = strftime({"%Y-%m-%d"}, now);
+    set req.http.X-Date = var.timestamp;
+
+    return(lookup);
+}
+
+sub vcl_fetch {
+    #FASTLY fetch
+    set beresp.ttl = 300s;
+    return(deliver);
+}
+
+sub vcl_deliver {
+    #FASTLY deliver
+    return(deliver);
+}

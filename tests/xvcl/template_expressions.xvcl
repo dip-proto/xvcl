@@ -1,0 +1,51 @@
+// Test: Template expressions with Python functions
+#const PORT = 8080
+#const VALUES = [10, 20, 30, 40]
+#const NAMES = ["alpha", "beta", "gamma"]
+
+// hex conversion
+set req.http.X-Hex = "{{hex(PORT)}}";
+set req.http.X-Hex2 = "{{hex(255)}}";
+
+// format function
+set req.http.X-Padded = "{{format(42, '05d')}}";
+set req.http.X-Float = "{{format(3.14159, '.2f')}}";
+
+// len function
+set req.http.X-Count = "{{len(VALUES)}}";
+set req.http.X-Names = "{{len(NAMES)}}";
+
+// min/max functions
+set req.http.X-Min = "{{min(VALUES)}}";
+set req.http.X-Max = "{{max(VALUES)}}";
+set req.http.X-MinDirect = "{{min(5, 3, 9)}}";
+set req.http.X-MaxDirect = "{{max(5, 3, 9)}}";
+
+// abs function
+set req.http.X-Abs = "{{abs(-42)}}";
+set req.http.X-AbsPos = "{{abs(42)}}";
+
+// int/str conversions
+set req.http.X-Int = "{{int('42')}}";
+set req.http.X-Str = "{{str(123)}}";
+
+// arithmetic expressions
+#const A = 10
+#const B = 3
+set req.http.X-Add = "{{A + B}}";
+set req.http.X-Sub = "{{A - B}}";
+set req.http.X-Mul = "{{A * B}}";
+set req.http.X-Div = "{{A // B}}";
+set req.http.X-Mod = "{{A % B}}";
+
+// boolean expressions
+#const FLAG = true
+#const CHECK = false
+set req.http.X-And = "{{FLAG and CHECK}}";
+set req.http.X-Or = "{{FLAG or CHECK}}";
+set req.http.X-Not = "{{not FLAG}}";
+
+// string operations
+#const PREFIX = "api"
+#const SUFFIX = "v2"
+set req.http.X-Concat = "{{PREFIX + '-' + SUFFIX}}";

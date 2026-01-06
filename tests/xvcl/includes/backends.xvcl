@@ -1,0 +1,9 @@
+// Backend definitions
+#const BACKEND_LIST = ["origin1", "origin2"]
+
+#for name in BACKEND_LIST
+backend F_{{name}} {
+    .host = "{{name}}.example.com";
+    .port = "443";
+}
+#endfor

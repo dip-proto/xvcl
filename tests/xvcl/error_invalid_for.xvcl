@@ -1,0 +1,4 @@
+// ERROR: Invalid #for syntax
+#for in range(10)
+backend web { }
+#endfor

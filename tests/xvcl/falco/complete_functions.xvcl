@@ -1,0 +1,77 @@
+// Falco test: Functions with single and tuple returns
+
+backend F_origin {
+    .host = "origin.example.com";
+    .port = "443";
+    .connect_timeout = 5s;
+    .first_byte_timeout = 30s;
+    .between_bytes_timeout = 10s;
+}
+
+#def concat_strings(prefix STRING, suffix STRING) -> STRING
+    declare local var.result STRING;
+    set var.result = prefix + "-" + suffix;
+    return var.result;
+#enddef
+
+#def split_host(host STRING) -> (STRING, STRING)
+    declare local var.name STRING;
+    declare local var.domain STRING;
+    set var.name = regsub(host, "\..*$", "");
+    set var.domain = regsub(host, "^[^\.]*\.", "");
+    return var.name, var.domain;
+#enddef
+
+#def adjust_value(val INTEGER, delta INTEGER) -> INTEGER
+    declare local var.result INTEGER;
+    set var.result = val;
+    set var.result += delta;
+    return var.result;
+#enddef
+
+#def get_range(base INTEGER) -> (INTEGER, INTEGER)
+    declare local var.lo INTEGER;
+    declare local var.hi INTEGER;
+    set var.lo = base;
+    set var.lo -= 10;
+    set var.hi = base;
+    set var.hi += 10;
+    return var.lo, var.hi;
+#enddef
+
+sub vcl_recv {
+    #FASTLY recv
+
+    declare local var.result STRING;
+    set var.result = concat_strings("hello", "world");
+    set req.http.X-Concat = var.result;
+
+    declare local var.name STRING;
+    declare local var.domain STRING;
+    set var.name, var.domain = split_host("www.example.com");
+    set req.http.X-Name = var.name;
+    set req.http.X-Domain = var.domain;
+
+    declare local var.adjusted INTEGER;
+    set var.adjusted = adjust_value(100, 5);
+    set req.http.X-Adjusted = var.adjusted;
+
+    declare local var.lo INTEGER;
+    declare local var.hi INTEGER;
+    set var.lo, var.hi = get_range(50);
+    set req.http.X-Lo = var.lo;
+    set req.http.X-Hi = var.hi;
+
+    return(lookup);
+}
+
+sub vcl_fetch {
+    #FASTLY fetch
+    set beresp.ttl = 300s;
+    return(deliver);
+}
+
+sub vcl_deliver {
+    #FASTLY deliver
+    return(deliver);
+}

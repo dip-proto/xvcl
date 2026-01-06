@@ -1,0 +1,40 @@
+// Falco test: For loops with range and lists
+#const SERVERS = ["origin1", "origin2"]
+#const TTL = 300
+
+#for server in SERVERS
+backend F_{{server}} {
+    .host = "{{server}}.example.com";
+    .port = "443";
+    .connect_timeout = 5s;
+    .first_byte_timeout = 30s;
+    .between_bytes_timeout = 10s;
+}
+#endfor
+
+sub vcl_recv {
+    #FASTLY recv
+
+    // Generated headers using range
+#for i in range(3)
+    set req.http.X-Index-{{i}} = "{{i}}";
+#endfor
+
+    // Generated headers using enumerate
+#for idx, server in enumerate(SERVERS)
+    set req.http.X-Server-{{idx}} = "{{server}}";
+#endfor
+
+    return(lookup);
+}
+
+sub vcl_fetch {
+    #FASTLY fetch
+    set beresp.ttl = {{TTL}}s;
+    return(deliver);
+}
+
+sub vcl_deliver {
+    #FASTLY deliver
+    return(deliver);
+}

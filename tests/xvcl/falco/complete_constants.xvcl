@@ -1,0 +1,35 @@
+// Falco test: Constants and template expressions
+#const BACKEND_HOST = "origin.example.com"
+#const BACKEND_PORT = 443
+#const CACHE_TTL = 3600
+#const ENABLE_FEATURE = true
+
+backend F_origin {
+    .host = "{{BACKEND_HOST}}";
+    .port = "{{BACKEND_PORT}}";
+    .connect_timeout = 5s;
+    .first_byte_timeout = 30s;
+    .between_bytes_timeout = 10s;
+}
+
+sub vcl_recv {
+    #FASTLY recv
+
+#if ENABLE_FEATURE
+    set req.http.X-Feature = "enabled";
+#endif
+
+    set req.http.X-TTL = "{{CACHE_TTL}}";
+    return(lookup);
+}
+
+sub vcl_fetch {
+    #FASTLY fetch
+    set beresp.ttl = {{CACHE_TTL}}s;
+    return(deliver);
+}
+
+sub vcl_deliver {
+    #FASTLY deliver
+    return(deliver);
+}

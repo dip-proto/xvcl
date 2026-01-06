@@ -1,0 +1,7 @@
+// Test: Include-once semantics (file included twice, should only appear once)
+#include "includes/constants.xvcl"
+#include "includes/constants.xvcl"
+#include "includes/constants.xvcl"
+
+// Should still only have one definition of constants
+set req.http.X-Port = "{{SHARED_PORT}}";

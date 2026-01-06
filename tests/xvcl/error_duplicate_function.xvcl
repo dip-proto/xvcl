@@ -1,0 +1,8 @@
+// ERROR: already defined
+#def dup(x INTEGER) -> INTEGER
+    return x;
+#enddef
+
+#def dup(x INTEGER) -> INTEGER
+    return x * 2;
+#enddef

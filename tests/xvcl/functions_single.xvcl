@@ -1,0 +1,42 @@
+// Test: Functions with single return value
+#def add(a INTEGER, b INTEGER) -> INTEGER
+    declare local var.sum INTEGER;
+    set var.sum = a + b;
+    return var.sum;
+#enddef
+
+#def concat(s1 STRING, s2 STRING) -> STRING
+    declare local var.result STRING;
+    set var.result = s1 + s2;
+    return var.result;
+#enddef
+
+#def double_float(x FLOAT) -> FLOAT
+    declare local var.result FLOAT;
+    set var.result = x * 2.0;
+    return var.result;
+#enddef
+
+#def is_positive(n INTEGER) -> BOOL
+    declare local var.result BOOL;
+    if (n > 0) {
+        set var.result = true;
+    } else {
+        set var.result = false;
+    }
+    return var.result;
+#enddef
+
+sub vcl_recv {
+    declare local var.sum INTEGER;
+    set var.sum = add(5, 10);
+
+    declare local var.str STRING;
+    set var.str = concat("hello", "world");
+
+    declare local var.doubled FLOAT;
+    set var.doubled = double_float(3.5);
+
+    declare local var.positive BOOL;
+    set var.positive = is_positive(42);
+}

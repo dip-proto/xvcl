@@ -1,0 +1,47 @@
+// Falco test: Nested loops and conditionals
+#const REGIONS = ["us", "eu"]
+#const ENVS = ["prod", "staging"]
+#const PRODUCTION = true
+
+#for region in REGIONS
+#for env in ENVS
+backend F_{{region}}_{{env}} {
+    .host = "{{env}}.{{region}}.example.com";
+    .port = "443";
+    .connect_timeout = 5s;
+    .first_byte_timeout = 30s;
+    .between_bytes_timeout = 10s;
+}
+#endfor
+#endfor
+
+sub vcl_recv {
+    #FASTLY recv
+
+#if PRODUCTION
+    set req.http.X-Env = "production";
+#else
+    set req.http.X-Env = "development";
+#endif
+
+#for region in REGIONS
+#for env in ENVS
+    if (req.http.X-Region == "{{region}}" && req.http.X-Env == "{{env}}") {
+        set req.backend = F_{{region}}_{{env}};
+    }
+#endfor
+#endfor
+
+    return(lookup);
+}
+
+sub vcl_fetch {
+    #FASTLY fetch
+    set beresp.ttl = 300s;
+    return(deliver);
+}
+
+sub vcl_deliver {
+    #FASTLY deliver
+    return(deliver);
+}

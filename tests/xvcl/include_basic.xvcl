@@ -1,0 +1,16 @@
+// Test: Basic includes
+#include "includes/constants.xvcl"
+#include "includes/macros.xvcl"
+#include "includes/backends.xvcl"
+
+// Use shared constants
+backend F_main {
+    .host = "{{SHARED_HOST}}";
+    .port = "{{SHARED_PORT}}";
+}
+
+// Use shared macro
+sub vcl_recv {
+    add_header("X-TTL", "req.http.Host")
+    set req.http.X-TTL-Value = "{{SHARED_TTL}}";
+}

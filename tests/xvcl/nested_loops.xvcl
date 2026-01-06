@@ -1,0 +1,37 @@
+// Test: Nested loops
+#const REGIONS = ["us", "eu"]
+#const ENVS = ["prod", "staging"]
+#const ZONES = ["a", "b"]
+
+// Two levels of nesting
+#for region in REGIONS
+#for env in ENVS
+backend {{region}}_{{env}} {
+    .host = "{{env}}.{{region}}.example.com";
+}
+#endfor
+#endfor
+
+// Three levels of nesting
+#for region in REGIONS
+#for env in ENVS
+#for zone in ZONES
+set req.http.X-{{region}}-{{env}}-{{zone}} = "active";
+#endfor
+#endfor
+#endfor
+
+// Nested with range
+#for i in range(2)
+#for j in range(2)
+set req.http.X-Cell-{{i}}-{{j}} = "{{i * 2 + j}}";
+#endfor
+#endfor
+
+// Nested with conditionals inside
+#const ENABLED = true
+#for region in REGIONS
+#if ENABLED
+set req.http.X-Region-{{region}} = "enabled";
+#endif
+#endfor

@@ -1,0 +1,2 @@
+// ERROR: Cannot find included file
+#include "nonexistent_file.xvcl"

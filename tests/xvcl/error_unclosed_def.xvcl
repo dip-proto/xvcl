@@ -1,0 +1,4 @@
+// ERROR: No matching #enddef
+#def broken_func(a INTEGER) -> INTEGER
+    return a;
+// missing #enddef
