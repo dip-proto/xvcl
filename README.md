@@ -1460,40 +1460,33 @@ sub vcl_recv {
 }
 ```
 
-### Example 4: A/B testing framework
+### Example 4: Lookup table generation
 
-**`ab-testing.xvcl`:**
+**`lookup-tables.xvcl`:**
 
 ```vcl
-#const EXPERIMENTS = [
-  ("homepage_hero", 50),
-  ("checkout_flow", 30),
-  ("pricing_page", 25)
-]
+#const HEX_DIGITS = "0123456789abcdef"
 
-#def assign_experiment(exp_id STRING, percentage INTEGER) -> BOOL
-  declare local var.hash STRING;
-  declare local var.value INTEGER;
-  declare local var.assigned BOOL;
-
-  set var.hash = digest.hash_md5(client.ip + exp_id);
-  set var.value = std.atoi(substr(var.hash, 0, 2)) % 100;
-  set var.assigned = (var.value < percentage);
-
-  return var.assigned;
-#enddef
-
-sub vcl_recv {
-  declare local var.in_experiment BOOL;
-
-#for exp_id, percentage in EXPERIMENTS
-  set var.in_experiment = assign_experiment("{{exp_id}}", {{percentage}});
-  if (var.in_experiment) {
-    set req.http.X-Experiment-{{exp_id}} = "variant";
-  } else {
-    set req.http.X-Experiment-{{exp_id}} = "control";
-  }
+// Generate a byte-to-hex lookup table
+table byte_to_hex STRING {
+#for i in range(256)
+    "{{i}}": "{{format(i, '02x')}}"{{", " if i < 255 else ""}}
 #endfor
+}
+
+// Generate HTTP status code descriptions
+#const STATUS_CODES = [200, 201, 301, 302, 400, 401, 403, 404, 500, 502, 503]
+#const STATUS_MESSAGES = ["OK", "Created", "Moved Permanently", "Found", "Bad Request", "Unauthorized", "Forbidden", "Not Found", "Internal Server Error", "Bad Gateway", "Service Unavailable"]
+
+table status_messages STRING {
+#for i in range(len(STATUS_CODES))
+    "{{STATUS_CODES[i]}}": "{{STATUS_MESSAGES[i]}}"{{", " if i < len(STATUS_CODES) - 1 else ""}}
+#endfor
+}
+
+sub vcl_deliver {
+  // Use generated tables
+  set resp.http.X-Status-Message = table.lookup(status_messages, resp.status);
 }
 ```
 
