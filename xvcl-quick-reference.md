@@ -21,12 +21,17 @@ xvcl input.xvcl --debug
 
 ```vcl
 #const NAME TYPE = value
+#const NAME = value          // Type inferred from value
 
 // Examples:
 #const PORT INTEGER = 8080
 #const HOST STRING = "example.com"
 #const ENABLED BOOL = True
 #const VERSION FLOAT = 1.5
+
+// Type inference:
+#const BACKENDS = ["web1", "web2"]   // List
+#const TTL = 300                     // Integer
 ```
 
 ### Template Expressions
@@ -38,6 +43,10 @@ xvcl input.xvcl --debug
 set req.http.X-Port = "{{PORT}}";
 backend F_{{REGION}}_{{ENV}} { ... }
 set req.http.X-Value = "{{PORT * 2}}";
+set req.http.X-Hex = "{{hex(PORT)}}";
+
+// Ternary expressions:
+"{{value if condition else other}}"
 ```
 
 ### For Loops
@@ -93,6 +102,7 @@ set req.http.X-Value = "{{PORT * 2}}";
 
 ```vcl
 #include "path/to/file.xvcl"
+#include <path/to/file.xvcl>   // Angle bracket syntax
 
 // Examples:
 #include "includes/backends.xvcl"
@@ -155,7 +165,7 @@ set var.a, var.b = parse("input");
 - `INTEGER` - Whole numbers
 - `STRING` - Text strings
 - `FLOAT` - Decimal numbers
-- `BOOL` - True/False
+- `BOOL` - `True`/`False` (or `true`/`false`)
 
 ## Built-in Functions (in expressions)
 
