@@ -1075,16 +1075,30 @@ class XVCLCompiler:
             if macro_name not in self.macros:
                 continue
 
-            # Find the matching closing parenthesis
+            # Find the matching closing parenthesis (ignoring parens inside strings)
             start_pos = match.end()  # Position after the opening (
             paren_depth = 1
             pos = start_pos
+            in_string = False
+            string_char = None
 
             while pos < len(line) and paren_depth > 0:
-                if line[pos] == "(":
-                    paren_depth += 1
-                elif line[pos] == ")":
-                    paren_depth -= 1
+                char = line[pos]
+                if in_string:
+                    if char == "\\" and pos + 1 < len(line):
+                        # Skip escaped character
+                        pos += 2
+                        continue
+                    elif char == string_char:
+                        in_string = False
+                else:
+                    if char in ('"', "'"):
+                        in_string = True
+                        string_char = char
+                    elif char == "(":
+                        paren_depth += 1
+                    elif char == ")":
+                        paren_depth -= 1
                 pos += 1
 
             if paren_depth != 0:
