@@ -228,7 +228,7 @@ regsuball(ua, "(?i)mobile|android", "")
                     <div class="code-comparison-horizontal">
                         <div class="code-pane">
                             <div class="code-label">xvcl Source</div>
-                            <pre><code class="language-c">#const REGIONS = ["us-east", "us-west", "eu-central", "ap-southeast"]
+                            <pre><code class="language-c">#const REGIONS = ["us_east", "us_west", "eu_central", "ap_southeast"]
 
 #for region in REGIONS
 backend origin_{{region}} {
@@ -242,18 +242,18 @@ backend origin_{{region}} {
                         <div class="code-pane">
                             <div class="code-label">Generated VCL</div>
                             <pre><code class="language-c">backend origin_us_east {
-  .host = "us-east.api.example.com";
+  .host = "us_east.api.example.com";
   .port = "443";
   .ssl = true;
   .connect_timeout = 5s;
 }
 backend origin_us_west {
-  .host = "us-west.api.example.com";
+  .host = "us_west.api.example.com";
   .port = "443";
   .ssl = true;
   .connect_timeout = 5s;
 }
-// ... eu-central, ap-southeast</code></pre>
+// ... eu_central, ap_southeast</code></pre>
                         </div>
                     </div>
                 </div>
@@ -270,24 +270,25 @@ backend origin_us_west {
 #enddef
 
 sub vcl_hash {
-  set req.hash += cache_key(req.url, req.http.User-ID);
+  declare local var.key STRING;
+  set var.key = cache_key(req.url, req.http.User-ID);
+  set req.hash += var.key;
 }</code></pre>
                         </div>
                         <div class="code-pane">
                             <div class="code-label">Generated VCL</div>
-                            <pre><code class="language-c">sub xvcl_func_cache_key {
-  //@recv, hash, hit, miss, pass, fetch, error, deliver, log
+                            <pre><code class="language-c">sub vcl_hash {
   declare local var.key STRING;
-  set var.key = req.http.X-Func-cache_key-url + ":" +
-                req.http.X-Func-cache_key-user;
-  set req.http.X-Func-cache_key-Return = std.tolower(var.key);
-}
-
-sub vcl_hash {
   set req.http.X-Func-cache_key-url = req.url;
   set req.http.X-Func-cache_key-user = req.http.User-ID;
-  call xvcl_func_cache_key;
-  set req.hash += req.http.X-Func-cache_key-Return;
+  call cache_key;
+  set var.key = req.http.X-Func-cache_key-Return;
+  set req.hash += var.key;
+}
+
+// Function subroutine generated at end of file
+sub cache_key {
+  // Parameter unpacking, function body...
 }</code></pre>
                         </div>
                     </div>
