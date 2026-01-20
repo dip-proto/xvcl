@@ -1,0 +1,14 @@
+// Test: Function call parsing
+#def echo(s STRING) -> STRING
+  return s;
+#enddef
+
+sub vcl_recv {
+  declare local var.out STRING;
+  set req.http.X-Test = echo("value");
+  set var.out = echo("a, b");
+  set var.out = echo(regsub(req.url.path, "/+", "/"));
+  set var.out = echo(
+    "a   b"
+  );
+}
