@@ -651,7 +651,8 @@ class XVCLCompiler:
         if not self.functions:
             return
 
-        self.output.append("")
+        if self.output and self.output[-1].strip():
+            self.output.append("")
         self.output.append(
             "// ============================================================================"
         )
@@ -941,40 +942,119 @@ class XVCLCompiler:
 
             joined = " ".join(joined_parts)
 
-            # Normalize multiple spaces to single spaces (but not inside strings)
-            # Simple approach: just normalize outside of obvious string contexts
-            joined = re.sub(r"\s+", " ", joined)
-
             # Add back the original indentation
             result.append(indent + joined)
 
         return result
+
+    def _find_matching_paren(self, text: str, start: int) -> Optional[int]:
+        """Find the matching ')' for '(' at index start, ignoring strings."""
+        if start < 0 or start >= len(text) or text[start] != "(":
+            return None
+
+        depth = 1
+        pos = start + 1
+        in_string = False
+        string_char = None
+
+        while pos < len(text) and depth > 0:
+            char = text[pos]
+            if in_string:
+                if char == "\\" and pos + 1 < len(text):
+                    pos += 2
+                    continue
+                elif char == string_char:
+                    in_string = False
+            else:
+                if char in ('"', "'"):
+                    in_string = True
+                    string_char = char
+                elif char == "(":
+                    depth += 1
+                elif char == ")":
+                    depth -= 1
+            pos += 1
+
+        if depth != 0:
+            return None
+
+        return pos - 1
+
+    def _parse_set_function_call(
+        self, line: str
+    ) -> Optional[tuple[str, list[str], str, list[str], str]]:
+        """
+        Parse a line of the form:
+            <prefix>set a, b = func(arg1, arg2);
+        Returns (prefix, result_vars, func_name, args, suffix) or None.
+        """
+        for match in re.finditer(r"\bset\s+", line):
+            prefix = line[: match.start()]
+            rest = line[match.end() :]
+
+            if "=" not in rest:
+                continue
+
+            lhs, rhs = rest.split("=", 1)
+            lhs = lhs.strip()
+            rhs = rhs.lstrip()
+
+            if not lhs:
+                continue
+
+            func_match = re.match(r"(\w+)\s*\(", rhs)
+            if not func_match:
+                continue
+
+            func_name = func_match.group(1)
+            open_paren_index = func_match.end() - 1
+            close_paren_index = self._find_matching_paren(rhs, open_paren_index)
+            if close_paren_index is None:
+                continue
+
+            args_str = rhs[open_paren_index + 1 : close_paren_index]
+            tail = rhs[close_paren_index + 1 :]
+
+            semicolon_match = re.match(r"\s*;(?P<suffix>.*)", tail, flags=re.DOTALL)
+            if not semicolon_match:
+                continue
+
+            suffix = semicolon_match.group("suffix")
+
+            # Split result vars (tuple unpacking if comma-separated)
+            result_vars = [v.strip() for v in lhs.split(",")] if "," in lhs else [lhs]
+            if any(not v for v in result_vars):
+                continue
+
+            args = []
+            if args_str.strip():
+                args = self._parse_macro_args(args_str)
+
+            return prefix, result_vars, func_name, args, suffix
+
+        return None
 
     def _process_function_calls(self, line: str) -> str:
         """Replace function calls with VCL subroutine calls using globals."""
         # First, expand any macros in the line (NEW in v2.4)
         line = self._expand_macros(line)
 
-        # Try tuple unpacking first
-        tuple_pattern = (
-            r"(.*?)\bset\s+((?:\w+(?:\.\w+)*\s*,\s*)+\w+(?:\.\w+)*)\s*=\s*(\w+)\s*\((.*?)\)\s*;"
-        )
+        parsed = self._parse_set_function_call(line)
+        if not parsed:
+            return line
 
-        def replace_tuple_call(match):
-            prefix = match.group(1)
-            result_vars_str = match.group(2)
-            func_name = match.group(3)
-            args_str = match.group(4).strip()
+        prefix, result_vars, func_name, args, suffix = parsed
 
-            if func_name not in self.functions:
-                return match.group(0)
+        if func_name not in self.functions:
+            return line
 
-            func = self.functions[func_name]
+        func = self.functions[func_name]
+        return_types = func.get_return_types()
+
+        # Tuple assignment
+        if len(result_vars) > 1:
             if not func.is_tuple_return():
-                return match.group(0)
-
-            result_vars = [v.strip() for v in result_vars_str.split(",")]
-            return_types = func.get_return_types()
+                return line
 
             if len(result_vars) != len(return_types):
                 raise self.make_error(
@@ -982,7 +1062,6 @@ class XVCLCompiler:
                     f"but {len(result_vars)} variables provided"
                 )
 
-            args = [arg.strip() for arg in args_str.split(",") if arg.strip()]
             if len(args) != len(func.params):
                 raise self.make_error(
                     f"Function {func_name} expects {len(func.params)} arguments, got {len(args)}"
@@ -1001,49 +1080,36 @@ class XVCLCompiler:
                     self._global_to_var(prefix, result_var, return_global, ret_type)
                 )
 
+            if suffix:
+                result_lines[-1] = f"{result_lines[-1]}{suffix}"
+
             return "\n".join(result_lines)
 
-        # Try single value
-        single_pattern = r"(.*?)\bset\s+(\w+(?:\.\w+)*)\s*=\s*(\w+)\s*\((.*?)\)\s*;"
+        # Single assignment
+        if func.is_tuple_return():
+            return line
 
-        def replace_single_call(match):
-            prefix = match.group(1)
-            result_var = match.group(2)
-            func_name = match.group(3)
-            args_str = match.group(4).strip()
-
-            if func_name not in self.functions:
-                return match.group(0)
-
-            func = self.functions[func_name]
-            if func.is_tuple_return():
-                return match.group(0)
-
-            args = [arg.strip() for arg in args_str.split(",") if arg.strip()]
-            if len(args) != len(func.params):
-                raise self.make_error(
-                    f"Function {func_name} expects {len(func.params)} arguments, got {len(args)}"
-                )
-
-            result_lines = []
-            for (param_name, param_type), arg in zip(func.params, args):
-                global_name = func.get_param_global(param_name)
-                result_lines.extend(self._param_to_global(prefix, global_name, arg, param_type))
-
-            result_lines.append(f"{prefix}call {func_name};")
-
-            return_global = func.get_return_global()
-            return_types = func.get_return_types()
-            result_lines.extend(
-                self._global_to_var(prefix, result_var, return_global, return_types[0])
+        if len(args) != len(func.params):
+            raise self.make_error(
+                f"Function {func_name} expects {len(func.params)} arguments, got {len(args)}"
             )
 
-            return "\n".join(result_lines)
+        result_lines = []
+        for (param_name, param_type), arg in zip(func.params, args):
+            global_name = func.get_param_global(param_name)
+            result_lines.extend(self._param_to_global(prefix, global_name, arg, param_type))
 
-        result = re.sub(tuple_pattern, replace_tuple_call, line)
-        if result != line:
-            return result
-        return re.sub(single_pattern, replace_single_call, line)
+        result_lines.append(f"{prefix}call {func_name};")
+
+        return_global = func.get_return_global()
+        result_lines.extend(
+            self._global_to_var(prefix, result_vars[0], return_global, return_types[0])
+        )
+
+        if suffix:
+            result_lines[-1] = f"{result_lines[-1]}{suffix}"
+
+        return "\n".join(result_lines)
 
     def _expand_macros(self, line: str) -> str:
         """Expand all macro calls in a line."""
