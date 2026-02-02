@@ -27,11 +27,6 @@ sub vcl_recv {
     set var.positive = (req.http.X-Func-is_positive-Return == "true");
 }
 
-
-// ============================================================================
-// GENERATED FUNCTION SUBROUTINES
-// ============================================================================
-
 // Function: add
 //@recv, hash, hit, miss, pass, fetch, error, deliver, log
 sub add {

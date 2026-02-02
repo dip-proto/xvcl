@@ -16,10 +16,6 @@ sub vcl_recv {
   set var.out = req.http.X-Func-echo-Return;
 }
 
-// ============================================================================
-// GENERATED FUNCTION SUBROUTINES
-// ============================================================================
-
 // Function: echo
 //@recv, hash, hit, miss, pass, fetch, error, deliver, log
 sub echo {

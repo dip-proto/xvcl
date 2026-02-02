@@ -273,6 +273,10 @@ class XVCLCompiler:
 
         lines = self.current_lines
 
+        # Pass 0: join multi-line directives (arrays/expressions across lines)
+        self.log_debug("Pass 0: Joining multi-line directives")
+        lines = self._join_multiline_directives(lines)
+
         # First pass: extract constants
         self.log_debug("Pass 1: Extracting constants")
         lines = self._extract_constants(lines)
@@ -434,7 +438,8 @@ class XVCLCompiler:
                 self.current_lines = included_content.split("\n")
 
                 # Recursively process includes in the included file
-                included_lines = self._extract_constants(self.current_lines)
+                included_lines = self._join_multiline_directives(self.current_lines)
+                included_lines = self._extract_constants(included_lines)
                 included_lines = self._process_includes(included_lines, resolved_path)
 
                 # Restore state
@@ -653,14 +658,6 @@ class XVCLCompiler:
 
         if self.output and self.output[-1].strip():
             self.output.append("")
-        self.output.append(
-            "// ============================================================================"
-        )
-        self.output.append("// GENERATED FUNCTION SUBROUTINES")
-        self.output.append(
-            "// ============================================================================"
-        )
-        self.output.append("")
 
         for func in self.functions.values():
             self._generate_function_subroutine(func)
@@ -862,7 +859,16 @@ class XVCLCompiler:
         Count parentheses balance, ignoring those inside string literals.
         Returns positive number for more opens than closes.
         """
-        depth = 0
+        paren_depth, _ = self._count_unquoted_delimiters(text)
+        return paren_depth
+
+    def _count_unquoted_delimiters(self, text: str) -> tuple[int, int]:
+        """
+        Count parentheses and bracket balance, ignoring those inside string literals.
+        Returns (paren_depth, bracket_depth).
+        """
+        paren_depth = 0
+        bracket_depth = 0
         in_string = False
         string_char = None
         i = 0
@@ -870,7 +876,6 @@ class XVCLCompiler:
             char = text[i]
             if in_string:
                 if char == "\\" and i + 1 < len(text):
-                    # Skip escaped character
                     i += 2
                     continue
                 elif char == string_char:
@@ -880,11 +885,64 @@ class XVCLCompiler:
                     in_string = True
                     string_char = char
                 elif char == "(":
-                    depth += 1
+                    paren_depth += 1
                 elif char == ")":
-                    depth -= 1
+                    paren_depth -= 1
+                elif char == "[":
+                    bracket_depth += 1
+                elif char == "]":
+                    bracket_depth -= 1
             i += 1
-        return depth
+        return paren_depth, bracket_depth
+
+    def _join_multiline_directives(self, lines: list[str]) -> list[str]:
+        """
+        Join multi-line directive expressions into single lines.
+        Supports #const, #for, #if, and #let when expressions span multiple lines,
+        such as multi-line arrays.
+        """
+        result = []
+        i = 0
+        # str.startswith accepts a tuple of prefixes.
+        directive_prefixes = ("#const ", "#for ", "#if ", "#let ")
+
+        while i < len(lines):
+            line = lines[i]
+            stripped = line.lstrip()
+
+            if not stripped.startswith(directive_prefixes):
+                result.append(line)
+                i += 1
+                continue
+
+            paren_depth, bracket_depth = self._count_unquoted_delimiters(line)
+            if paren_depth == 0 and bracket_depth == 0:
+                result.append(line)
+                i += 1
+                continue
+
+            accumulated = [line]
+            i += 1
+
+            while i < len(lines) and (paren_depth > 0 or bracket_depth > 0):
+                next_line = lines[i]
+                accumulated.append(next_line)
+                delta_paren, delta_bracket = self._count_unquoted_delimiters(next_line)
+                paren_depth += delta_paren
+                bracket_depth += delta_bracket
+                i += 1
+
+            leading_ws = len(line) - len(line.lstrip())
+            indent = line[:leading_ws]
+            joined_parts = []
+            for part in accumulated:
+                part_stripped = part.strip()
+                if part_stripped:
+                    joined_parts.append(part_stripped)
+            joined = " ".join(joined_parts)
+            result.append(indent + joined)
+
+        return result
 
     def _join_multiline_function_calls(self, lines: list[str]) -> list[str]:
         """

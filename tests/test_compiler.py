@@ -37,11 +37,7 @@ def compile_xvcl(source_file: Path, output_file: Optional[Path] = None) -> tuple
             cwd=TESTS_DIR.parent,
         )
 
-        if result.returncode == 0 and output_file.exists():
-            output = output_file.read_text()
-        else:
-            output = ""
-
+        output = output_file.read_text() if result.returncode == 0 and output_file.exists() else ""
         return output, result.stderr, result.returncode
     finally:
         if cleanup and output_file.exists():
@@ -75,7 +71,8 @@ def get_error_tests() -> list[tuple[str, Path, str]]:
 def strip_ansi(text: str) -> str:
     """Remove ANSI escape codes from text."""
     import re
-    return re.sub(r'\x1b\[[0-9;]*m', '', text)
+
+    return re.sub(r"\x1b\[[0-9;]*m", "", text)
 
 
 class TestFeatures:
@@ -90,9 +87,7 @@ class TestFeatures:
 
         expected = expected_file.read_text()
         assert output.strip() == expected.strip(), (
-            f"Output mismatch for {name}:\n"
-            f"=== Expected ===\n{expected}\n"
-            f"=== Got ===\n{output}"
+            f"Output mismatch for {name}:\n=== Expected ===\n{expected}\n=== Got ===\n{output}"
         )
 
 
@@ -127,6 +122,7 @@ def get_falco_tests() -> list[tuple[str, Path]]:
 def run_falco_lint(vcl_content: str) -> tuple[str, int]:
     """Run falco lint on VCL content. Returns (output, returncode)."""
     import shutil
+
     falco_path = shutil.which("falco")
     if falco_path is None:
         pytest.skip("falco not installed")
@@ -162,6 +158,5 @@ class TestFalcoValidation:
             if "backend" in output.lower() and "first_byte_timeout" in falco_output:
                 pytest.skip("falco warning about missing backend properties (not an xvcl issue)")
             assert falco_returncode == 0, (
-                f"falco lint failed for {name}:\n{falco_output}\n\n"
-                f"Generated VCL:\n{output}"
+                f"falco lint failed for {name}:\n{falco_output}\n\nGenerated VCL:\n{output}"
             )

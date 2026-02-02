@@ -30,11 +30,6 @@ sub vcl_recv {
     set var.sum = std.atoi(req.http.X-Func-get_stats-Return2);
 }
 
-
-// ============================================================================
-// GENERATED FUNCTION SUBROUTINES
-// ============================================================================
-
 // Function: divmod
 //@recv, hash, hit, miss, pass, fetch, error, deliver, log
 sub divmod {

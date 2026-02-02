@@ -1,0 +1,18 @@
+// Test: Multi-line arrays
+#const BACKENDS = [
+  "edge-1",
+  "edge-2",
+]
+
+#for backend in BACKENDS
+backend {{backend}} {
+    .port = "443";
+}
+#endfor
+
+#for port in [
+  80,
+  443,
+]
+set req.http.X-Port = "{{port}}";
+#endfor

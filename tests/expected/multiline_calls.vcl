@@ -18,11 +18,6 @@ sub vcl_recv {
     set var.result = req.http.X-Func-process-Return;
 }
 
-
-// ============================================================================
-// GENERATED FUNCTION SUBROUTINES
-// ============================================================================
-
 // Function: process
 //@recv, hash, hit, miss, pass, fetch, error, deliver, log
 sub process {
