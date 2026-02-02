@@ -182,14 +182,14 @@ set var.a, var.b = parse("input");
 
 ## Command-Line Options
 
-| Option          | Description                             |
-| --------------- | --------------------------------------- |
-| `input`         | Input xvcl file (required)              |
-| `-o, --output`  | Output VCL file                         |
-| `-I, --include` | Add an include search path (repeatable) |
-| `--debug`       | Enable debug mode                       |
-| `--source-maps` | Add source map comments                 |
-| `-v, --verbose` | Verbose output                          |
+| Option          | Description                                         |
+| --------------- | --------------------------------------------------- |
+| `input`         | Input xvcl file (required)                          |
+| `-o, --output`  | Output VCL file (default: replaces .xvcl with .vcl) |
+| `-I, --include` | Add an include search path (repeatable)             |
+| `--debug`       | Enable debug output with expansion traces           |
+| `--source-maps` | Add source map comments                             |
+| `-v, --verbose` | Verbose output (alias for --debug)                  |
 
 ## Common Patterns
 
@@ -255,7 +255,7 @@ set var.cacheable = should_cache(req.url, req.request);
 | Complex logic          | Function |
 | Multiple statements    | Function |
 | Multiple return values | Function |
-| No overhead required   | Macro    |
+| Zero overhead needed   | Macro    |
 
 ## Error Messages
 
@@ -296,6 +296,7 @@ falco test main.vcl
 - Use `--debug` when troubleshooting
 - Validate generated VCL with Falco
 - Use version control for both xvcl files and generated output (or just the xvcl files)
+- Arrays and function calls can span multiple lines for readability
 
 ---
 
