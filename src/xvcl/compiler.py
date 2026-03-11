@@ -1469,6 +1469,8 @@ class XVCLCompiler:
                 value = self._evaluate_expression(expr, context)
             except Exception as e:
                 raise self.make_error(f"Error evaluating expression '{expr}': {e}")
+            if isinstance(value, bool):
+                return "true" if value else "false"
             return str(value)
 
         return re.sub(r"\{\{(.+?)\}\}", replace_expr, line)

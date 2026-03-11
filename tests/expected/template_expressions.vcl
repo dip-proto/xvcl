@@ -34,9 +34,9 @@ set req.http.X-Div = "3";
 set req.http.X-Mod = "1";
 
 // boolean expressions
-set req.http.X-And = "False";
-set req.http.X-Or = "True";
-set req.http.X-Not = "False";
+set req.http.X-And = "false";
+set req.http.X-Or = "true";
+set req.http.X-Not = "false";
 
 // string operations
 set req.http.X-Concat = "api-v2";
