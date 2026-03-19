@@ -135,7 +135,7 @@ pip install .
 pip install -e ".[dev]"
 
 # Using uv (recommended for faster installation)
-uv pip install xvcl
+uv tool install xvcl
 ```
 
 After installation, the `xvcl` command is available globally.
