@@ -55,15 +55,12 @@
 
                     <div class="hero-features">
                         <div class="hero-feature">
-                            <span class="feature-icon">⚡</span>
                             <span>Zero runtime overhead - compiles to standard VCL</span>
                         </div>
                         <div class="hero-feature">
-                            <span class="feature-icon">🔄</span>
                             <span>Reduces boilerplate with loops and macros</span>
                         </div>
                         <div class="hero-feature">
-                            <span class="feature-icon">🛡️</span>
                             <span>Type-safe functions with automatic parameter passing</span>
                         </div>
                     </div>
@@ -138,7 +135,6 @@ backend web1 {
 
                 <div class="features-grid">
                     <div class="feature-card">
-                        <div class="feature-icon-large">📝</div>
                         <h3>Constants</h3>
                         <p>Define compile-time constants with type checking. Use them throughout your configuration for centralized management.</p>
                         <pre><code class="language-c">#const API_TIMEOUT INTEGER = 5000
@@ -146,7 +142,6 @@ backend web1 {
                     </div>
 
                     <div class="feature-card">
-                        <div class="feature-icon-large">🔁</div>
                         <h3>For Loops</h3>
                         <p>Generate repetitive code blocks dynamically. Iterate over ranges or lists to create backends, directors, or ACL entries.</p>
                         <pre><code class="language-c">#for region in ["us", "eu", "asia"]
@@ -157,7 +152,6 @@ backend origin_{{region}} {
                     </div>
 
                     <div class="feature-card">
-                        <div class="feature-icon-large">🔀</div>
                         <h3>Conditionals</h3>
                         <p>Conditional compilation based on environment variables or constants. Different code for dev vs production.</p>
                         <pre><code class="language-c">#if PRODUCTION
@@ -168,7 +162,6 @@ backend origin_{{region}} {
                     </div>
 
                     <div class="feature-card">
-                        <div class="feature-icon-large">⚙️</div>
                         <h3>Functions</h3>
                         <p>Define reusable functions with parameters and return values. Compiles to VCL subroutines with automatic header-based parameter passing.</p>
                         <pre><code class="language-c">#def normalize(url STRING) -> STRING
@@ -179,7 +172,6 @@ set req.url = normalize(req.url);</code></pre>
                     </div>
 
                     <div class="feature-card">
-                        <div class="feature-icon-large">⚡</div>
                         <h3>Inline Macros</h3>
                         <p>Zero-overhead text substitution for simple expressions. Expands inline without function call overhead.</p>
                         <pre><code class="language-c">#inline is_mobile(ua)
@@ -188,7 +180,6 @@ regsuball(ua, "(?i)mobile|android", "")
                     </div>
 
                     <div class="feature-card">
-                        <div class="feature-icon-large">📦</div>
                         <h3>Includes</h3>
                         <p>Modular code organization with include-once semantics and circular dependency detection.</p>
                         <pre><code class="language-c">#include "backends.xvcl"
@@ -197,7 +188,6 @@ regsuball(ua, "(?i)mobile|android", "")
                     </div>
 
                     <div class="feature-card">
-                        <div class="feature-icon-large">🎯</div>
                         <h3>Template Expressions</h3>
                         <p>Evaluate Python expressions at compile time. Use constants and loop variables for dynamic code generation.</p>
                         <pre><code class="language-c">#for i in range(10)
@@ -208,10 +198,25 @@ regsuball(ua, "(?i)mobile|android", "")
                     </div>
 
                     <div class="feature-card">
-                        <div class="feature-icon-large">🔍</div>
+                        <h3>Variables</h3>
+                        <p>Declare and initialize local variables in a single step with <code>#let</code>, reducing VCL boilerplate.</p>
+                        <pre><code class="language-c">#let timestamp STRING = std.time(now, now);
+#let cache_key STRING = req.url + req.http.Host;</code></pre>
+                    </div>
+
+                    <div class="feature-card">
                         <h3>Source Maps</h3>
                         <p>Debug generated VCL with source map comments that track where each line originated in your xvcl files.</p>
                         <pre><code class="language-bash">xvcl main.xvcl -o main.vcl --source-maps</code></pre>
+                    </div>
+
+                    <div class="feature-card">
+                        <h3>Structured Diagnostics</h3>
+                        <p>Errors include rule IDs, source provenance across includes, actionable help text, and suggestions. Machine-parseable JSON output for CI and editor integration.</p>
+                        <pre><code class="language-bash">error[E002]: Constant 'PORT' is already defined
+ --> config.xvcl:5
+  |  included from main.xvcl:2
+  = help: Remove duplicate or rename</code></pre>
                     </div>
                 </div>
             </div>
@@ -446,25 +451,21 @@ backend backend{{i}} {
 
                 <div class="docs-grid">
                     <a href="https://github.com/dip-proto/xvcl/blob/main/README.md" class="doc-card" target="_blank" rel="noopener">
-                        <div class="doc-icon">📘</div>
                         <h3>Full Documentation</h3>
                         <p>Complete guide to all xvcl features, directives, and usage patterns.</p>
                     </a>
 
                     <a href="https://github.com/dip-proto/xvcl/blob/main/xvcl-quick-reference.md" class="doc-card" target="_blank" rel="noopener">
-                        <div class="doc-icon">⚡</div>
                         <h3>Quick Reference</h3>
                         <p>Concise syntax reference for all xvcl directives and template expressions.</p>
                     </a>
 
                     <a href="https://github.com/dip-proto/xvcl/tree/main/examples" class="doc-card" target="_blank" rel="noopener">
-                        <div class="doc-icon">💡</div>
                         <h3>Examples</h3>
                         <p>Real-world xvcl implementations including IP encryption and complex configurations.</p>
                     </a>
 
                     <a href="https://github.com/dip-proto/xvcl/issues" class="doc-card" target="_blank" rel="noopener">
-                        <div class="doc-icon">🐛</div>
                         <h3>Issues & Support</h3>
                         <p>Report bugs, request features, or get help from the community.</p>
                     </a>
@@ -520,8 +521,6 @@ fastly vcl custom update --version=latest --name=main --content=main.vcl</code><
                     <h4>Community</h4>
                     <ul class="footer-links">
                         <li><a href="https://github.com/dip-proto/xvcl/issues" target="_blank" rel="noopener">Issues</a></li>
-                        <li><a href="https://github.com/dip-proto/xvcl/discussions" target="_blank" rel="noopener">Discussions</a></li>
-                        <li><a href="https://github.com/dip-proto/xvcl/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener">Contributing</a></li>
                     </ul>
                 </div>
 
