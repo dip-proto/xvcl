@@ -1,0 +1,36 @@
+# User-Agent MD5 Hash Example
+# This XVCL code computes the MD5 hash of the User-Agent header
+
+# Inline macro for zero-overhead MD5 computation
+#inline ua_md5(ua)
+digest.hash_md5(ua)
+#endinline
+
+# Function to compute User-Agent hash with optional prefix
+#def compute_ua_hash(ua STRING, prefix STRING) -> STRING
+  declare local var.hash STRING;
+  set var.hash = digest.hash_md5(ua);
+  if (prefix != "") {
+    set var.hash = prefix + var.hash;
+  }
+  return var.hash;
+#enddef
+
+sub vcl_recv {
+#FASTLY RECV
+
+  # Method 1: Direct computation
+  declare local var.ua_hash STRING;
+  set var.ua_hash = digest.hash_md5(req.http.User-Agent);
+  set req.http.X-UA-MD5 = var.ua_hash;
+
+  # Method 2: Using the inline macro (zero overhead)
+  set req.http.X-UA-MD5-Macro = ua_md5(req.http.User-Agent);
+
+  # Method 3: Using the function with a prefix
+  declare local var.ua_hash_prefixed STRING;
+  set var.ua_hash_prefixed = compute_ua_hash(req.http.User-Agent, "md5:");
+  set req.http.X-UA-MD5-Prefixed = var.ua_hash_prefixed;
+
+  return(lookup);
+}

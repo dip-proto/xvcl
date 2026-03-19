@@ -1,0 +1,4 @@
+// ERROR: Invalid #const syntax
+#const BAD1
+#const BAD2
+#const GOOD = 42

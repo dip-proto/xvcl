@@ -1,0 +1,9 @@
+// ERROR: Generated duplicate VCL declaration
+#const NAMES = ["web_1", "web_1"]
+
+#for name in NAMES
+backend {{name}} {
+  .host = "{{name}}.example.com";
+  .port = "80";
+}
+#endfor

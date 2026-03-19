@@ -1,0 +1,13 @@
+// ERROR: returns 2 values, but assigned to a single variable
+#def parse(input STRING) -> (STRING, INTEGER)
+  declare local var.name STRING;
+  declare local var.count INTEGER;
+  set var.name = input;
+  set var.count = 1;
+  return var.name, var.count;
+#enddef
+
+sub vcl_recv {
+  declare local var.x STRING;
+  set var.x = parse("hello");
+}

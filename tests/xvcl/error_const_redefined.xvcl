@@ -1,0 +1,3 @@
+// ERROR: Constant 'PORT' is already defined
+#const PORT = 8080
+#const PORT = 9090

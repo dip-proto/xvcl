@@ -1,0 +1,4 @@
+// ERROR: not supported in xvcl function parameters
+#def get_ip(host STRING) -> IP
+  return host;
+#enddef

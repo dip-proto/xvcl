@@ -1,0 +1,4 @@
+// ERROR: not supported in xvcl function parameters
+#def timeout(t RTIME) -> STRING
+  return "ok";
+#enddef
