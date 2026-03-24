@@ -1,0 +1,10 @@
+// ERROR: no return statement
+#def compute(x INTEGER) -> INTEGER
+  declare local var.result INTEGER;
+  set var.result = x + 1;
+#enddef
+
+sub vcl_recv {
+  declare local var.r INTEGER;
+  set var.r = compute(5);
+}

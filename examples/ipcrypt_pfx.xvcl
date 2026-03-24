@@ -137,7 +137,7 @@ var.cipher_bit_char == "0" || var.cipher_bit_char == "2" || var.cipher_bit_char 
 # === MAIN ENCRYPTION FUNCTION ===
 
 # Encrypt IP address using ipcrypt-pfx
-#def ipcrypt_pfx_encrypt(input_ip IP, key1 STRING, key2 STRING) -> IP
+#def ipcrypt_pfx_encrypt(input_ip STRING, key1 STRING, key2 STRING) -> STRING
   #let is_ipv4 BOOL = addr.is_ipv4(input_ip);
   #let padded_prefix STRING = "";
   #let encrypted_bits STRING = "";

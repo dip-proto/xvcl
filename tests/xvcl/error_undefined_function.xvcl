@@ -1,0 +1,9 @@
+// ERROR: Function 'addd' is not defined
+#def add(a INTEGER, b INTEGER) -> INTEGER
+  return a + b;
+#enddef
+
+sub vcl_recv {
+  declare local var.x INTEGER;
+  set var.x = addd(1, 2);
+}

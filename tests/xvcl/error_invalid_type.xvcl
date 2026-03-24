@@ -1,0 +1,4 @@
+// ERROR: is not a valid VCL type
+#def greet(name STRNIG) -> STRING
+  return name;
+#enddef

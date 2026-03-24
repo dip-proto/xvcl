@@ -182,14 +182,15 @@ set var.a, var.b = parse("input");
 
 ## Command-Line Options
 
-| Option          | Description                                         |
-| --------------- | --------------------------------------------------- |
-| `input`         | Input xvcl file (required)                          |
-| `-o, --output`  | Output VCL file (default: replaces .xvcl with .vcl) |
-| `-I, --include` | Add an include search path (repeatable)             |
-| `--debug`       | Enable debug output with expansion traces           |
-| `--source-maps` | Add source map comments                             |
-| `-v, --verbose` | Verbose output (alias for --debug)                  |
+| Option               | Description                                         |
+| -------------------- | --------------------------------------------------- |
+| `input`              | Input xvcl file (required)                          |
+| `-o, --output`       | Output VCL file (default: replaces .xvcl with .vcl) |
+| `-I, --include`      | Add an include search path (repeatable)             |
+| `--debug`            | Enable debug output with expansion traces           |
+| `--source-maps`      | Add source map comments                             |
+| `-v, --verbose`      | Verbose output (alias for --debug)                  |
+| `--error-format`     | Error output format: `text` (default) or `json`     |
 
 ## Common Patterns
 

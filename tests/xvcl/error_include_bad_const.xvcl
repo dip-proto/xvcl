@@ -1,0 +1,2 @@
+// ERROR: Invalid #const syntax
+#include "includes/bad_const.xvcl"

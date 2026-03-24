@@ -511,7 +511,7 @@ section {
 
 .features-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+    grid-template-columns: repeat(2, 1fr);
     gap: var(--spacing-xl);
     margin-top: var(--spacing-2xl);
 }
@@ -538,10 +538,6 @@ section {
     background-color: white;
 }
 
-.feature-icon-large {
-    font-size: 3rem;
-    margin-bottom: var(--spacing-md);
-}
 
 .feature-card h3 {
     color: var(--color-text);
@@ -653,7 +649,7 @@ section {
 
 .install-options {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    grid-template-columns: repeat(2, 1fr);
     gap: var(--spacing-lg);
     margin-top: var(--spacing-lg);
     margin-bottom: var(--spacing-2xl);
@@ -870,7 +866,7 @@ section {
     }
 
     .features-grid {
-        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        grid-template-columns: repeat(2, 1fr);
     }
 }
 

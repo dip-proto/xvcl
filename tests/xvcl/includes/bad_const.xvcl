@@ -1,0 +1,2 @@
+// This file has a bad constant
+#const BROKEN

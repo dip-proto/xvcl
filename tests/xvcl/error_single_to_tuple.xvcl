@@ -1,0 +1,10 @@
+// ERROR: returns a single value, but 2 variables provided
+#def add(a INTEGER, b INTEGER) -> INTEGER
+  return a + b;
+#enddef
+
+sub vcl_recv {
+  declare local var.x INTEGER;
+  declare local var.y INTEGER;
+  set var.x, var.y = add(1, 2);
+}
