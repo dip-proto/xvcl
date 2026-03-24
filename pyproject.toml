@@ -1,6 +1,6 @@
 [project]
 name = "xvcl"
-version = "2.8.0"
+version = "2.8.1"
 description = "Extended VCL compiler with metaprogramming features for Fastly VCL"
 readme = "README.md"
 authors = [

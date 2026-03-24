@@ -1,0 +1,939 @@
+# IPCrypt-ND (Non-Deterministic) Implementation using KIASU-BC
+# This implements the ipcrypt-nd variant which uses an 8-byte tweak for non-deterministic encryption
+
+backend test_backend {
+    .host = "127.0.0.1";
+    .port = "8080";
+}
+
+# === LOOKUP TABLES ===
+
+# Byte (0-255) to 2-digit hex
+table byte_to_hex STRING {
+#for i in range(256)
+    "{{i}}": "{{format(i, '02x')}}"{{", " if i < 255 else ""}}
+#endfor
+}
+
+# Hex digit to integer (0-15)
+table hex_to_int STRING {
+    "0": "0", "1": "1", "2": "2", "3": "3", "4": "4", "5": "5", "6": "6", "7": "7",
+    "8": "8", "9": "9", "a": "10", "b": "11", "c": "12", "d": "13", "e": "14", "f": "15"
+}
+
+# Hex byte (00-ff) to integer (0-255) - direct lookup avoids VCL arithmetic limitations
+table hex_byte_to_int STRING {
+#for i in range(256)
+    "{{format(i, '02x')}}": "{{i}}"{{", " if i < 255 else ""}}
+#endfor
+}
+
+# AES S-box lookup table
+#const SBOX = [99, 124, 119, 123, 242, 107, 111, 197, 48, 1, 103, 43, 254, 215, 171, 118, 202, 130, 201, 125, 250, 89, 71, 240, 173, 212, 162, 175, 156, 164, 114, 192, 183, 253, 147, 38, 54, 63, 247, 204, 52, 165, 229, 241, 113, 216, 49, 21, 4, 199, 35, 195, 24, 150, 5, 154, 7, 18, 128, 226, 235, 39, 178, 117, 9, 131, 44, 26, 27, 110, 90, 160, 82, 59, 214, 179, 41, 227, 47, 132, 83, 209, 0, 237, 32, 252, 177, 91, 106, 203, 190, 57, 74, 76, 88, 207, 208, 239, 170, 251, 67, 77, 51, 133, 69, 249, 2, 127, 80, 60, 159, 168, 81, 163, 64, 143, 146, 157, 56, 245, 188, 182, 218, 33, 16, 255, 243, 210, 205, 12, 19, 236, 95, 151, 68, 23, 196, 167, 126, 61, 100, 93, 25, 115, 96, 129, 79, 220, 34, 42, 144, 136, 70, 238, 184, 20, 222, 94, 11, 219, 224, 50, 58, 10, 73, 6, 36, 92, 194, 211, 172, 98, 145, 149, 228, 121, 231, 200, 55, 109, 141, 213, 78, 169, 108, 86, 244, 234, 101, 122, 174, 8, 186, 120, 37, 46, 28, 166, 180, 198, 232, 221, 116, 31, 75, 189, 139, 138, 112, 62, 181, 102, 72, 3, 246, 14, 97, 53, 87, 185, 134, 193, 29, 158, 225, 248, 152, 17, 105, 217, 142, 148, 155, 30, 135, 233, 206, 85, 40, 223, 140, 161, 137, 13, 191, 230, 66, 104, 65, 153, 45, 15, 176, 84, 187, 22]
+
+table sbox STRING {
+#for i in range(256)
+    "{{i}}": "{{SBOX[i]}}"{{", " if i < 255 else ""}}
+#endfor
+}
+
+# Inverse AES S-box lookup table
+#const INV_SBOX = [82, 9, 106, 213, 48, 54, 165, 56, 191, 64, 163, 158, 129, 243, 215, 251, 124, 227, 57, 130, 155, 47, 255, 135, 52, 142, 67, 68, 196, 222, 233, 203, 84, 123, 148, 50, 166, 194, 35, 61, 238, 76, 149, 11, 66, 250, 195, 78, 8, 46, 161, 102, 40, 217, 36, 178, 118, 91, 162, 73, 109, 139, 209, 37, 114, 248, 246, 100, 134, 104, 152, 22, 212, 164, 92, 204, 93, 101, 182, 146, 108, 112, 72, 80, 253, 237, 185, 218, 94, 21, 70, 87, 167, 141, 157, 132, 144, 216, 171, 0, 140, 188, 211, 10, 247, 228, 88, 5, 184, 179, 69, 6, 208, 44, 30, 143, 202, 63, 15, 2, 193, 175, 189, 3, 1, 19, 138, 107, 58, 145, 17, 65, 79, 103, 220, 234, 151, 242, 207, 206, 240, 180, 230, 115, 150, 172, 116, 34, 231, 173, 53, 133, 226, 249, 55, 232, 28, 117, 223, 110, 71, 241, 26, 113, 29, 41, 197, 137, 111, 183, 98, 14, 170, 24, 190, 27, 252, 86, 62, 75, 198, 210, 121, 32, 154, 219, 192, 254, 120, 205, 90, 244, 31, 221, 168, 51, 136, 7, 199, 49, 177, 18, 16, 89, 39, 128, 236, 95, 96, 81, 127, 169, 25, 181, 74, 13, 45, 229, 122, 159, 147, 201, 156, 239, 160, 224, 59, 77, 174, 42, 245, 176, 200, 235, 187, 60, 131, 83, 153, 97, 23, 43, 4, 126, 186, 119, 214, 38, 225, 105, 20, 99, 85, 33, 12, 125]
+
+table inv_sbox STRING {
+#for i in range(256)
+    "{{i}}": "{{INV_SBOX[i]}}"{{", " if i < 255 else ""}}
+#endfor
+}
+
+# Precomputed MUL2 table for AES MixColumns (multiply by 2 in GF(2^8))
+#const MUL2 = [(x << 1) ^ (0x1b if x & 0x80 else 0) & 0xff for x in range(256)]
+
+table mul2 STRING {
+#for i in range(256)
+    "{{i}}": "{{MUL2[i]}}"{{", " if i < 255 else ""}}
+#endfor
+}
+
+# Precomputed MUL3 table for AES MixColumns (multiply by 3 in GF(2^8))
+#const MUL3 = [((x << 1) ^ (0x1b if x & 0x80 else 0) & 0xff) ^ x for x in range(256)]
+
+table mul3 STRING {
+#for i in range(256)
+    "{{i}}": "{{MUL3[i]}}"{{", " if i < 255 else ""}}
+#endfor
+}
+
+# AES round constants
+#const RCON = [0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36]
+
+table rcon STRING {
+#for i in range(10)
+    "{{i}}": "{{RCON[i]}}"{{", " if i < 9 else ""}}
+#endfor
+}
+
+# === HELPER FUNCTIONS ===
+
+# Function: hex_byte_to_int
+# Converts a 2-character hex string to an integer (0-255)
+# Uses direct lookup table to avoid VCL arithmetic limitations
+#inline hex_byte_to_int(hex_str)
+std.atoi(table.lookup(hex_byte_to_int, hex_str))
+#endinline
+
+# Function: ip_to_hex128
+# Converts an IP address (IPv4 or IPv6) to a 32-character hex string
+sub ip_to_hex128 {
+    declare local var.input_ip IP;
+    set var.input_ip = req.http.X-Func-ip_to_hex128-ip;
+
+    declare local var.return_value STRING;
+    declare local var.is_ipv4 BOOL;
+    set var.is_ipv4 = addr.is_ipv4(var.input_ip);
+
+    if (var.is_ipv4) {
+        declare local var.ipv4_hex STRING;
+        set var.ipv4_hex = "00000000000000000000ffff";
+
+#for i in range(4)
+        set var.ipv4_hex = var.ipv4_hex + table.lookup(byte_to_hex,
+            std.itoa(addr.extract_bits(var.input_ip, {{(3 - i) * 8}}, 8)));
+#endfor
+
+        set var.return_value = var.ipv4_hex;
+    } else {
+        declare local var.ipv6_hex STRING;
+        set var.ipv6_hex = "";
+
+#for i in range(16)
+        set var.ipv6_hex = var.ipv6_hex + table.lookup(byte_to_hex,
+            std.itoa(addr.extract_bits(var.input_ip, {{(15 - i) * 8}}, 8)));
+#endfor
+
+        set var.return_value = var.ipv6_hex;
+    }
+
+    set req.http.X-Func-ip_to_hex128-Return = var.return_value;
+}
+
+# Function: hex128_to_ipv6
+# Converts a 32-character hex string to an IPv6 address string in canonical format
+sub hex128_to_ipv6 {
+    declare local var.hex128 STRING;
+    set var.hex128 = req.http.X-Func-hex128_to_ipv6-hex128;
+
+    declare local var.return_value STRING;
+
+    declare local var.ipv6_str STRING;
+    set var.ipv6_str =
+        substr(var.hex128, 0, 4) + ":" +
+        substr(var.hex128, 4, 4) + ":" +
+        substr(var.hex128, 8, 4) + ":" +
+        substr(var.hex128, 12, 4) + ":" +
+        substr(var.hex128, 16, 4) + ":" +
+        substr(var.hex128, 20, 4) + ":" +
+        substr(var.hex128, 24, 4) + ":" +
+        substr(var.hex128, 28, 4);
+
+    declare local var.ip_val IP;
+    set var.ip_val = std.str2ip(var.ipv6_str, "::1");
+    set var.return_value = var.ip_val;
+
+    set req.http.X-Func-hex128_to_ipv6-Return = var.return_value;
+}
+
+# Function: pad_tweak
+# Pads an 8-byte tweak (16 hex chars) to 16 bytes (32 hex chars)
+# Format: [T0 T1 00 00 T2 T3 00 00 T4 T5 00 00 T6 T7 00 00]
+sub pad_tweak {
+    declare local var.tweak STRING;
+    set var.tweak = req.http.X-Func-pad_tweak-tweak;
+
+    declare local var.padded STRING;
+    set var.padded =
+        substr(var.tweak, 0, 4) + "0000" +
+        substr(var.tweak, 4, 4) + "0000" +
+        substr(var.tweak, 8, 4) + "0000" +
+        substr(var.tweak, 12, 4) + "0000";
+
+    set req.http.X-Func-pad_tweak-Return = var.padded;
+}
+
+# Function: xor_hex32
+# XORs two 32-character hex strings (16 bytes each)
+sub xor_hex32 {
+    declare local var.a STRING;
+    declare local var.b STRING;
+    set var.a = req.http.X-Func-xor_hex32-a;
+    set var.b = req.http.X-Func-xor_hex32-b;
+
+    declare local var.result STRING;
+    set var.result = "";
+
+#for i in range(16)
+    declare local var.byte_a{{i}} INTEGER;
+    declare local var.byte_b{{i}} INTEGER;
+    set var.byte_a{{i}} = hex_byte_to_int(substr(var.a, {{i * 2}}, 2));
+    set var.byte_b{{i}} = hex_byte_to_int(substr(var.b, {{i * 2}}, 2));
+    set var.byte_a{{i}} ^= var.byte_b{{i}};
+    set var.result = var.result + table.lookup(byte_to_hex, std.itoa(var.byte_a{{i}}));
+#endfor
+
+    set req.http.X-Func-xor_hex32-Return = var.result;
+}
+
+# Function: aes_sub_bytes
+# Applies AES S-box substitution to a 32-char hex state
+sub aes_sub_bytes {
+    declare local var.state STRING;
+    set var.state = req.http.X-Func-aes_sub_bytes-state;
+
+    declare local var.result STRING;
+    set var.result = "";
+
+#for i in range(16)
+    declare local var.b{{i}} INTEGER;
+    set var.b{{i}} = hex_byte_to_int(substr(var.state, {{i * 2}}, 2));
+    set var.result = var.result + table.lookup(byte_to_hex, table.lookup(sbox, std.itoa(var.b{{i}})));
+#endfor
+
+    set req.http.X-Func-aes_sub_bytes-Return = var.result;
+}
+
+# Function: aes_inv_sub_bytes
+# Applies inverse AES S-box substitution
+sub aes_inv_sub_bytes {
+    declare local var.state STRING;
+    set var.state = req.http.X-Func-aes_inv_sub_bytes-state;
+
+    declare local var.result STRING;
+    set var.result = "";
+
+#for i in range(16)
+    declare local var.b{{i}} INTEGER;
+    set var.b{{i}} = hex_byte_to_int(substr(var.state, {{i * 2}}, 2));
+    set var.result = var.result + table.lookup(byte_to_hex, table.lookup(inv_sbox, std.itoa(var.b{{i}})));
+#endfor
+
+    set req.http.X-Func-aes_inv_sub_bytes-Return = var.result;
+}
+
+# Function: aes_shift_rows
+# Performs AES ShiftRows operation
+# Input state (column-major): s0 s4 s8  s12
+#                             s1 s5 s9  s13
+#                             s2 s6 s10 s14
+#                             s3 s7 s11 s15
+# After ShiftRows: s0  s4  s8  s12
+#                  s5  s9  s13 s1
+#                  s10 s14 s2  s6
+#                  s15 s3  s7  s11
+sub aes_shift_rows {
+    declare local var.state STRING;
+    set var.state = req.http.X-Func-aes_shift_rows-state;
+
+    declare local var.result STRING;
+    set var.result =
+        substr(var.state, 0, 2) +   // s0
+        substr(var.state, 10, 2) +  // s5
+        substr(var.state, 20, 2) +  // s10
+        substr(var.state, 30, 2) +  // s15
+        substr(var.state, 8, 2) +   // s4
+        substr(var.state, 18, 2) +  // s9
+        substr(var.state, 28, 2) +  // s14
+        substr(var.state, 6, 2) +   // s3
+        substr(var.state, 16, 2) +  // s8
+        substr(var.state, 26, 2) +  // s13
+        substr(var.state, 4, 2) +   // s2
+        substr(var.state, 14, 2) +  // s7
+        substr(var.state, 24, 2) +  // s12
+        substr(var.state, 2, 2) +   // s1
+        substr(var.state, 12, 2) +  // s6
+        substr(var.state, 22, 2);   // s11
+
+    set req.http.X-Func-aes_shift_rows-Return = var.result;
+}
+
+# Function: aes_inv_shift_rows
+# Performs inverse AES ShiftRows operation
+sub aes_inv_shift_rows {
+    declare local var.state STRING;
+    set var.state = req.http.X-Func-aes_inv_shift_rows-state;
+
+    declare local var.result STRING;
+    set var.result =
+        substr(var.state, 0, 2) +   // s0
+        substr(var.state, 26, 2) +  // s13 -> s1
+        substr(var.state, 20, 2) +  // s10 -> s2
+        substr(var.state, 14, 2) +  // s7 -> s3
+        substr(var.state, 8, 2) +   // s4
+        substr(var.state, 2, 2) +   // s1 -> s5
+        substr(var.state, 28, 2) +  // s14 -> s6
+        substr(var.state, 22, 2) +  // s11 -> s7
+        substr(var.state, 16, 2) +  // s8
+        substr(var.state, 10, 2) +  // s5 -> s9
+        substr(var.state, 4, 2) +   // s2 -> s10
+        substr(var.state, 30, 2) +  // s15 -> s11
+        substr(var.state, 24, 2) +  // s12
+        substr(var.state, 18, 2) +  // s9 -> s13
+        substr(var.state, 12, 2) +  // s6 -> s14
+        substr(var.state, 6, 2);    // s3 -> s15
+
+    set req.http.X-Func-aes_inv_shift_rows-Return = var.result;
+}
+
+# Function: aes_mix_columns
+# Performs AES MixColumns operation on a single column
+sub aes_mix_columns {
+    declare local var.state STRING;
+    set var.state = req.http.X-Func-aes_mix_columns-state;
+
+    declare local var.result STRING;
+    set var.result = "";
+
+    // Process 4 columns
+#for col in range(4)
+    declare local var.s0_{{col}} INTEGER;
+    declare local var.s1_{{col}} INTEGER;
+    declare local var.s2_{{col}} INTEGER;
+    declare local var.s3_{{col}} INTEGER;
+    set var.s0_{{col}} = hex_byte_to_int(substr(var.state, {{col * 8}}, 2));
+    set var.s1_{{col}} = hex_byte_to_int(substr(var.state, {{col * 8 + 2}}, 2));
+    set var.s2_{{col}} = hex_byte_to_int(substr(var.state, {{col * 8 + 4}}, 2));
+    set var.s3_{{col}} = hex_byte_to_int(substr(var.state, {{col * 8 + 6}}, 2));
+
+    // r0 = 2*s0 + 3*s1 + s2 + s3
+    declare local var.r0_{{col}} INTEGER;
+    set var.r0_{{col}} = std.atoi(table.lookup(mul2, std.itoa(var.s0_{{col}})));
+    set var.r0_{{col}} ^= std.atoi(table.lookup(mul3, std.itoa(var.s1_{{col}})));
+    set var.r0_{{col}} ^= var.s2_{{col}};
+    set var.r0_{{col}} ^= var.s3_{{col}};
+
+    // r1 = s0 + 2*s1 + 3*s2 + s3
+    declare local var.r1_{{col}} INTEGER;
+    set var.r1_{{col}} = var.s0_{{col}};
+    set var.r1_{{col}} ^= std.atoi(table.lookup(mul2, std.itoa(var.s1_{{col}})));
+    set var.r1_{{col}} ^= std.atoi(table.lookup(mul3, std.itoa(var.s2_{{col}})));
+    set var.r1_{{col}} ^= var.s3_{{col}};
+
+    // r2 = s0 + s1 + 2*s2 + 3*s3
+    declare local var.r2_{{col}} INTEGER;
+    set var.r2_{{col}} = var.s0_{{col}};
+    set var.r2_{{col}} ^= var.s1_{{col}};
+    set var.r2_{{col}} ^= std.atoi(table.lookup(mul2, std.itoa(var.s2_{{col}})));
+    set var.r2_{{col}} ^= std.atoi(table.lookup(mul3, std.itoa(var.s3_{{col}})));
+
+    // r3 = 3*s0 + s1 + s2 + 2*s3
+    declare local var.r3_{{col}} INTEGER;
+    set var.r3_{{col}} = std.atoi(table.lookup(mul3, std.itoa(var.s0_{{col}})));
+    set var.r3_{{col}} ^= var.s1_{{col}};
+    set var.r3_{{col}} ^= var.s2_{{col}};
+    set var.r3_{{col}} ^= std.atoi(table.lookup(mul2, std.itoa(var.s3_{{col}})));
+
+    set var.result = var.result +
+        table.lookup(byte_to_hex, std.itoa(var.r0_{{col}})) +
+        table.lookup(byte_to_hex, std.itoa(var.r1_{{col}})) +
+        table.lookup(byte_to_hex, std.itoa(var.r2_{{col}})) +
+        table.lookup(byte_to_hex, std.itoa(var.r3_{{col}}));
+#endfor
+
+    set req.http.X-Func-aes_mix_columns-Return = var.result;
+}
+
+# Function: aes_inv_mix_columns
+# Performs inverse AES MixColumns operation
+sub aes_inv_mix_columns {
+    declare local var.state STRING;
+    set var.state = req.http.X-Func-aes_inv_mix_columns-state;
+
+    declare local var.result STRING;
+    set var.result = "";
+
+#for col in range(4)
+    declare local var.c0_{{col}} INTEGER;
+    declare local var.c1_{{col}} INTEGER;
+    declare local var.c2_{{col}} INTEGER;
+    declare local var.c3_{{col}} INTEGER;
+    set var.c0_{{col}} = hex_byte_to_int(substr(var.state, {{col * 8}}, 2));
+    set var.c1_{{col}} = hex_byte_to_int(substr(var.state, {{col * 8 + 2}}, 2));
+    set var.c2_{{col}} = hex_byte_to_int(substr(var.state, {{col * 8 + 4}}, 2));
+    set var.c3_{{col}} = hex_byte_to_int(substr(var.state, {{col * 8 + 6}}, 2));
+
+    // For inverse MixColumns, multiply by:
+    // | 0e 0b 0d 09 |
+    // | 09 0e 0b 0d |
+    // | 0d 09 0e 0b |
+    // | 0b 0d 09 0e |
+
+    // Compute multiplications in GF(2^8)
+    declare local var.m2_c0_{{col}} INTEGER;
+    declare local var.m2_c1_{{col}} INTEGER;
+    declare local var.m2_c2_{{col}} INTEGER;
+    declare local var.m2_c3_{{col}} INTEGER;
+    set var.m2_c0_{{col}} = std.atoi(table.lookup(mul2, std.itoa(var.c0_{{col}})));
+    set var.m2_c1_{{col}} = std.atoi(table.lookup(mul2, std.itoa(var.c1_{{col}})));
+    set var.m2_c2_{{col}} = std.atoi(table.lookup(mul2, std.itoa(var.c2_{{col}})));
+    set var.m2_c3_{{col}} = std.atoi(table.lookup(mul2, std.itoa(var.c3_{{col}})));
+
+    declare local var.m4_c0_{{col}} INTEGER;
+    declare local var.m4_c1_{{col}} INTEGER;
+    declare local var.m4_c2_{{col}} INTEGER;
+    declare local var.m4_c3_{{col}} INTEGER;
+    set var.m4_c0_{{col}} = std.atoi(table.lookup(mul2, std.itoa(var.m2_c0_{{col}})));
+    set var.m4_c1_{{col}} = std.atoi(table.lookup(mul2, std.itoa(var.m2_c1_{{col}})));
+    set var.m4_c2_{{col}} = std.atoi(table.lookup(mul2, std.itoa(var.m2_c2_{{col}})));
+    set var.m4_c3_{{col}} = std.atoi(table.lookup(mul2, std.itoa(var.m2_c3_{{col}})));
+
+    declare local var.m8_c0_{{col}} INTEGER;
+    declare local var.m8_c1_{{col}} INTEGER;
+    declare local var.m8_c2_{{col}} INTEGER;
+    declare local var.m8_c3_{{col}} INTEGER;
+    set var.m8_c0_{{col}} = std.atoi(table.lookup(mul2, std.itoa(var.m4_c0_{{col}})));
+    set var.m8_c1_{{col}} = std.atoi(table.lookup(mul2, std.itoa(var.m4_c1_{{col}})));
+    set var.m8_c2_{{col}} = std.atoi(table.lookup(mul2, std.itoa(var.m4_c2_{{col}})));
+    set var.m8_c3_{{col}} = std.atoi(table.lookup(mul2, std.itoa(var.m4_c3_{{col}})));
+
+    // mul9 = m8 ^ original
+    declare local var.m9_c0_{{col}} INTEGER;
+    declare local var.m9_c1_{{col}} INTEGER;
+    declare local var.m9_c2_{{col}} INTEGER;
+    declare local var.m9_c3_{{col}} INTEGER;
+    set var.m9_c0_{{col}} = var.m8_c0_{{col}};
+    set var.m9_c0_{{col}} ^= var.c0_{{col}};
+    set var.m9_c1_{{col}} = var.m8_c1_{{col}};
+    set var.m9_c1_{{col}} ^= var.c1_{{col}};
+    set var.m9_c2_{{col}} = var.m8_c2_{{col}};
+    set var.m9_c2_{{col}} ^= var.c2_{{col}};
+    set var.m9_c3_{{col}} = var.m8_c3_{{col}};
+    set var.m9_c3_{{col}} ^= var.c3_{{col}};
+
+    // mul11 = m8 ^ m2 ^ original
+    declare local var.m11_c0_{{col}} INTEGER;
+    declare local var.m11_c1_{{col}} INTEGER;
+    declare local var.m11_c2_{{col}} INTEGER;
+    declare local var.m11_c3_{{col}} INTEGER;
+    set var.m11_c0_{{col}} = var.m8_c0_{{col}};
+    set var.m11_c0_{{col}} ^= var.m2_c0_{{col}};
+    set var.m11_c0_{{col}} ^= var.c0_{{col}};
+    set var.m11_c1_{{col}} = var.m8_c1_{{col}};
+    set var.m11_c1_{{col}} ^= var.m2_c1_{{col}};
+    set var.m11_c1_{{col}} ^= var.c1_{{col}};
+    set var.m11_c2_{{col}} = var.m8_c2_{{col}};
+    set var.m11_c2_{{col}} ^= var.m2_c2_{{col}};
+    set var.m11_c2_{{col}} ^= var.c2_{{col}};
+    set var.m11_c3_{{col}} = var.m8_c3_{{col}};
+    set var.m11_c3_{{col}} ^= var.m2_c3_{{col}};
+    set var.m11_c3_{{col}} ^= var.c3_{{col}};
+
+    // mul13 = m8 ^ m4 ^ original
+    declare local var.m13_c0_{{col}} INTEGER;
+    declare local var.m13_c1_{{col}} INTEGER;
+    declare local var.m13_c2_{{col}} INTEGER;
+    declare local var.m13_c3_{{col}} INTEGER;
+    set var.m13_c0_{{col}} = var.m8_c0_{{col}};
+    set var.m13_c0_{{col}} ^= var.m4_c0_{{col}};
+    set var.m13_c0_{{col}} ^= var.c0_{{col}};
+    set var.m13_c1_{{col}} = var.m8_c1_{{col}};
+    set var.m13_c1_{{col}} ^= var.m4_c1_{{col}};
+    set var.m13_c1_{{col}} ^= var.c1_{{col}};
+    set var.m13_c2_{{col}} = var.m8_c2_{{col}};
+    set var.m13_c2_{{col}} ^= var.m4_c2_{{col}};
+    set var.m13_c2_{{col}} ^= var.c2_{{col}};
+    set var.m13_c3_{{col}} = var.m8_c3_{{col}};
+    set var.m13_c3_{{col}} ^= var.m4_c3_{{col}};
+    set var.m13_c3_{{col}} ^= var.c3_{{col}};
+
+    // mul14 = m8 ^ m4 ^ m2
+    declare local var.m14_c0_{{col}} INTEGER;
+    declare local var.m14_c1_{{col}} INTEGER;
+    declare local var.m14_c2_{{col}} INTEGER;
+    declare local var.m14_c3_{{col}} INTEGER;
+    set var.m14_c0_{{col}} = var.m8_c0_{{col}};
+    set var.m14_c0_{{col}} ^= var.m4_c0_{{col}};
+    set var.m14_c0_{{col}} ^= var.m2_c0_{{col}};
+    set var.m14_c1_{{col}} = var.m8_c1_{{col}};
+    set var.m14_c1_{{col}} ^= var.m4_c1_{{col}};
+    set var.m14_c1_{{col}} ^= var.m2_c1_{{col}};
+    set var.m14_c2_{{col}} = var.m8_c2_{{col}};
+    set var.m14_c2_{{col}} ^= var.m4_c2_{{col}};
+    set var.m14_c2_{{col}} ^= var.m2_c2_{{col}};
+    set var.m14_c3_{{col}} = var.m8_c3_{{col}};
+    set var.m14_c3_{{col}} ^= var.m4_c3_{{col}};
+    set var.m14_c3_{{col}} ^= var.m2_c3_{{col}};
+
+    // r0 = 14*c0 + 11*c1 + 13*c2 + 9*c3
+    declare local var.ir0_{{col}} INTEGER;
+    set var.ir0_{{col}} = var.m14_c0_{{col}};
+    set var.ir0_{{col}} ^= var.m11_c1_{{col}};
+    set var.ir0_{{col}} ^= var.m13_c2_{{col}};
+    set var.ir0_{{col}} ^= var.m9_c3_{{col}};
+
+    // r1 = 9*c0 + 14*c1 + 11*c2 + 13*c3
+    declare local var.ir1_{{col}} INTEGER;
+    set var.ir1_{{col}} = var.m9_c0_{{col}};
+    set var.ir1_{{col}} ^= var.m14_c1_{{col}};
+    set var.ir1_{{col}} ^= var.m11_c2_{{col}};
+    set var.ir1_{{col}} ^= var.m13_c3_{{col}};
+
+    // r2 = 13*c0 + 9*c1 + 14*c2 + 11*c3
+    declare local var.ir2_{{col}} INTEGER;
+    set var.ir2_{{col}} = var.m13_c0_{{col}};
+    set var.ir2_{{col}} ^= var.m9_c1_{{col}};
+    set var.ir2_{{col}} ^= var.m14_c2_{{col}};
+    set var.ir2_{{col}} ^= var.m11_c3_{{col}};
+
+    // r3 = 11*c0 + 13*c1 + 9*c2 + 14*c3
+    declare local var.ir3_{{col}} INTEGER;
+    set var.ir3_{{col}} = var.m11_c0_{{col}};
+    set var.ir3_{{col}} ^= var.m13_c1_{{col}};
+    set var.ir3_{{col}} ^= var.m9_c2_{{col}};
+    set var.ir3_{{col}} ^= var.m14_c3_{{col}};
+
+    set var.result = var.result +
+        table.lookup(byte_to_hex, std.itoa(var.ir0_{{col}})) +
+        table.lookup(byte_to_hex, std.itoa(var.ir1_{{col}})) +
+        table.lookup(byte_to_hex, std.itoa(var.ir2_{{col}})) +
+        table.lookup(byte_to_hex, std.itoa(var.ir3_{{col}}));
+#endfor
+
+    set req.http.X-Func-aes_inv_mix_columns-Return = var.result;
+}
+
+# Function: aes_key_expansion
+# Expands a 16-byte key to 11 round keys (stored as concatenated hex)
+# This stores 11 * 32 = 352 hex characters in the return header
+sub aes_key_expansion {
+    declare local var.key STRING;
+    set var.key = req.http.X-Func-aes_key_expansion-key;
+
+    // Round keys are stored concatenated
+    declare local var.round_keys STRING;
+    set var.round_keys = var.key;  // First round key is the original key
+
+    // Generate 10 more round keys
+#for round in range(10)
+    // Get previous round key (last 32 chars)
+    declare local var.prev_key_{{round}} STRING;
+    set var.prev_key_{{round}} = substr(var.round_keys, {{round * 32}}, 32);
+
+    // Get last word (4 bytes = 8 hex chars) of previous key
+    declare local var.last_word_{{round}} STRING;
+    set var.last_word_{{round}} = substr(var.prev_key_{{round}}, 24, 8);
+
+    // RotWord: rotate left by 1 byte
+    declare local var.rot_word_{{round}} STRING;
+    set var.rot_word_{{round}} = substr(var.last_word_{{round}}, 2, 6) + substr(var.last_word_{{round}}, 0, 2);
+
+    // SubWord: apply S-box to each byte
+    declare local var.sub_word_{{round}} STRING;
+    declare local var.sw0_{{round}} INTEGER;
+    declare local var.sw1_{{round}} INTEGER;
+    declare local var.sw2_{{round}} INTEGER;
+    declare local var.sw3_{{round}} INTEGER;
+    set var.sw0_{{round}} = hex_byte_to_int(substr(var.rot_word_{{round}}, 0, 2));
+    set var.sw1_{{round}} = hex_byte_to_int(substr(var.rot_word_{{round}}, 2, 2));
+    set var.sw2_{{round}} = hex_byte_to_int(substr(var.rot_word_{{round}}, 4, 2));
+    set var.sw3_{{round}} = hex_byte_to_int(substr(var.rot_word_{{round}}, 6, 2));
+    set var.sub_word_{{round}} =
+        table.lookup(byte_to_hex, table.lookup(sbox, std.itoa(var.sw0_{{round}}))) +
+        table.lookup(byte_to_hex, table.lookup(sbox, std.itoa(var.sw1_{{round}}))) +
+        table.lookup(byte_to_hex, table.lookup(sbox, std.itoa(var.sw2_{{round}}))) +
+        table.lookup(byte_to_hex, table.lookup(sbox, std.itoa(var.sw3_{{round}})));
+
+    // XOR with Rcon (only first byte)
+    declare local var.rcon_word_{{round}} STRING;
+    declare local var.first_byte_{{round}} INTEGER;
+    set var.first_byte_{{round}} = hex_byte_to_int(substr(var.sub_word_{{round}}, 0, 2));
+    set var.first_byte_{{round}} ^= std.atoi(table.lookup(rcon, "{{round}}"));
+    set var.rcon_word_{{round}} = table.lookup(byte_to_hex, std.itoa(var.first_byte_{{round}})) + substr(var.sub_word_{{round}}, 2, 6);
+
+    // Generate new round key
+    declare local var.new_key_{{round}} STRING;
+
+    // Word 0 = prev_key word 0 XOR rcon_word
+    declare local var.w0_{{round}} STRING;
+    declare local var.w0b0_{{round}} INTEGER;
+    declare local var.w0b1_{{round}} INTEGER;
+    declare local var.w0b2_{{round}} INTEGER;
+    declare local var.w0b3_{{round}} INTEGER;
+    set var.w0b0_{{round}} = hex_byte_to_int(substr(var.prev_key_{{round}}, 0, 2));
+    set var.w0b0_{{round}} ^= hex_byte_to_int(substr(var.rcon_word_{{round}}, 0, 2));
+    set var.w0b1_{{round}} = hex_byte_to_int(substr(var.prev_key_{{round}}, 2, 2));
+    set var.w0b1_{{round}} ^= hex_byte_to_int(substr(var.rcon_word_{{round}}, 2, 2));
+    set var.w0b2_{{round}} = hex_byte_to_int(substr(var.prev_key_{{round}}, 4, 2));
+    set var.w0b2_{{round}} ^= hex_byte_to_int(substr(var.rcon_word_{{round}}, 4, 2));
+    set var.w0b3_{{round}} = hex_byte_to_int(substr(var.prev_key_{{round}}, 6, 2));
+    set var.w0b3_{{round}} ^= hex_byte_to_int(substr(var.rcon_word_{{round}}, 6, 2));
+    set var.w0_{{round}} =
+        table.lookup(byte_to_hex, std.itoa(var.w0b0_{{round}})) +
+        table.lookup(byte_to_hex, std.itoa(var.w0b1_{{round}})) +
+        table.lookup(byte_to_hex, std.itoa(var.w0b2_{{round}})) +
+        table.lookup(byte_to_hex, std.itoa(var.w0b3_{{round}}));
+
+    // Words 1-3: XOR with previous word
+    declare local var.w1_{{round}} STRING;
+    declare local var.w1b0_{{round}} INTEGER;
+    declare local var.w1b1_{{round}} INTEGER;
+    declare local var.w1b2_{{round}} INTEGER;
+    declare local var.w1b3_{{round}} INTEGER;
+    set var.w1b0_{{round}} = hex_byte_to_int(substr(var.prev_key_{{round}}, 8, 2));
+    set var.w1b0_{{round}} ^= var.w0b0_{{round}};
+    set var.w1b1_{{round}} = hex_byte_to_int(substr(var.prev_key_{{round}}, 10, 2));
+    set var.w1b1_{{round}} ^= var.w0b1_{{round}};
+    set var.w1b2_{{round}} = hex_byte_to_int(substr(var.prev_key_{{round}}, 12, 2));
+    set var.w1b2_{{round}} ^= var.w0b2_{{round}};
+    set var.w1b3_{{round}} = hex_byte_to_int(substr(var.prev_key_{{round}}, 14, 2));
+    set var.w1b3_{{round}} ^= var.w0b3_{{round}};
+    set var.w1_{{round}} =
+        table.lookup(byte_to_hex, std.itoa(var.w1b0_{{round}})) +
+        table.lookup(byte_to_hex, std.itoa(var.w1b1_{{round}})) +
+        table.lookup(byte_to_hex, std.itoa(var.w1b2_{{round}})) +
+        table.lookup(byte_to_hex, std.itoa(var.w1b3_{{round}}));
+
+    declare local var.w2_{{round}} STRING;
+    declare local var.w2b0_{{round}} INTEGER;
+    declare local var.w2b1_{{round}} INTEGER;
+    declare local var.w2b2_{{round}} INTEGER;
+    declare local var.w2b3_{{round}} INTEGER;
+    set var.w2b0_{{round}} = hex_byte_to_int(substr(var.prev_key_{{round}}, 16, 2));
+    set var.w2b0_{{round}} ^= var.w1b0_{{round}};
+    set var.w2b1_{{round}} = hex_byte_to_int(substr(var.prev_key_{{round}}, 18, 2));
+    set var.w2b1_{{round}} ^= var.w1b1_{{round}};
+    set var.w2b2_{{round}} = hex_byte_to_int(substr(var.prev_key_{{round}}, 20, 2));
+    set var.w2b2_{{round}} ^= var.w1b2_{{round}};
+    set var.w2b3_{{round}} = hex_byte_to_int(substr(var.prev_key_{{round}}, 22, 2));
+    set var.w2b3_{{round}} ^= var.w1b3_{{round}};
+    set var.w2_{{round}} =
+        table.lookup(byte_to_hex, std.itoa(var.w2b0_{{round}})) +
+        table.lookup(byte_to_hex, std.itoa(var.w2b1_{{round}})) +
+        table.lookup(byte_to_hex, std.itoa(var.w2b2_{{round}})) +
+        table.lookup(byte_to_hex, std.itoa(var.w2b3_{{round}}));
+
+    declare local var.w3_{{round}} STRING;
+    declare local var.w3b0_{{round}} INTEGER;
+    declare local var.w3b1_{{round}} INTEGER;
+    declare local var.w3b2_{{round}} INTEGER;
+    declare local var.w3b3_{{round}} INTEGER;
+    set var.w3b0_{{round}} = hex_byte_to_int(substr(var.prev_key_{{round}}, 24, 2));
+    set var.w3b0_{{round}} ^= var.w2b0_{{round}};
+    set var.w3b1_{{round}} = hex_byte_to_int(substr(var.prev_key_{{round}}, 26, 2));
+    set var.w3b1_{{round}} ^= var.w2b1_{{round}};
+    set var.w3b2_{{round}} = hex_byte_to_int(substr(var.prev_key_{{round}}, 28, 2));
+    set var.w3b2_{{round}} ^= var.w2b2_{{round}};
+    set var.w3b3_{{round}} = hex_byte_to_int(substr(var.prev_key_{{round}}, 30, 2));
+    set var.w3b3_{{round}} ^= var.w2b3_{{round}};
+    set var.w3_{{round}} =
+        table.lookup(byte_to_hex, std.itoa(var.w3b0_{{round}})) +
+        table.lookup(byte_to_hex, std.itoa(var.w3b1_{{round}})) +
+        table.lookup(byte_to_hex, std.itoa(var.w3b2_{{round}})) +
+        table.lookup(byte_to_hex, std.itoa(var.w3b3_{{round}}));
+
+    set var.new_key_{{round}} = var.w0_{{round}} + var.w1_{{round}} + var.w2_{{round}} + var.w3_{{round}};
+    set var.round_keys = var.round_keys + var.new_key_{{round}};
+#endfor
+
+    set req.http.X-Func-aes_key_expansion-Return = var.round_keys;
+}
+
+# Function: kiasu_bc_encrypt
+# Encrypts a 16-byte block using KIASU-BC (tweaked AES)
+sub kiasu_bc_encrypt {
+    declare local var.key STRING;
+    declare local var.tweak STRING;
+    declare local var.plaintext STRING;
+    set var.key = req.http.X-Func-kiasu_bc_encrypt-key;
+    set var.tweak = req.http.X-Func-kiasu_bc_encrypt-tweak;
+    set var.plaintext = req.http.X-Func-kiasu_bc_encrypt-plaintext;
+
+    // Expand key
+    set req.http.X-Func-aes_key_expansion-key = var.key;
+    call aes_key_expansion;
+    declare local var.round_keys STRING;
+    set var.round_keys = req.http.X-Func-aes_key_expansion-Return;
+
+    // Pad tweak
+    set req.http.X-Func-pad_tweak-tweak = var.tweak;
+    call pad_tweak;
+    declare local var.padded_tweak STRING;
+    set var.padded_tweak = req.http.X-Func-pad_tweak-Return;
+
+    declare local var.state STRING;
+
+    // Initial round: state = plaintext XOR (round_key[0] XOR padded_tweak)
+    set req.http.X-Func-xor_hex32-a = substr(var.round_keys, 0, 32);
+    set req.http.X-Func-xor_hex32-b = var.padded_tweak;
+    call xor_hex32;
+    declare local var.tweaked_key0 STRING;
+    set var.tweaked_key0 = req.http.X-Func-xor_hex32-Return;
+
+    set req.http.X-Func-xor_hex32-a = var.plaintext;
+    set req.http.X-Func-xor_hex32-b = var.tweaked_key0;
+    call xor_hex32;
+    set var.state = req.http.X-Func-xor_hex32-Return;
+
+    // Main rounds 1-9
+#for round in range(1, 10)
+    // SubBytes
+    set req.http.X-Func-aes_sub_bytes-state = var.state;
+    call aes_sub_bytes;
+    set var.state = req.http.X-Func-aes_sub_bytes-Return;
+
+    // ShiftRows
+    set req.http.X-Func-aes_shift_rows-state = var.state;
+    call aes_shift_rows;
+    set var.state = req.http.X-Func-aes_shift_rows-Return;
+
+    // MixColumns
+    set req.http.X-Func-aes_mix_columns-state = var.state;
+    call aes_mix_columns;
+    set var.state = req.http.X-Func-aes_mix_columns-Return;
+
+    // AddRoundKey with tweaked key
+    set req.http.X-Func-xor_hex32-a = substr(var.round_keys, {{round * 32}}, 32);
+    set req.http.X-Func-xor_hex32-b = var.padded_tweak;
+    call xor_hex32;
+    declare local var.tweaked_key{{round}} STRING;
+    set var.tweaked_key{{round}} = req.http.X-Func-xor_hex32-Return;
+
+    set req.http.X-Func-xor_hex32-a = var.state;
+    set req.http.X-Func-xor_hex32-b = var.tweaked_key{{round}};
+    call xor_hex32;
+    set var.state = req.http.X-Func-xor_hex32-Return;
+#endfor
+
+    // Final round (no MixColumns)
+    // SubBytes
+    set req.http.X-Func-aes_sub_bytes-state = var.state;
+    call aes_sub_bytes;
+    set var.state = req.http.X-Func-aes_sub_bytes-Return;
+
+    // ShiftRows
+    set req.http.X-Func-aes_shift_rows-state = var.state;
+    call aes_shift_rows;
+    set var.state = req.http.X-Func-aes_shift_rows-Return;
+
+    // AddRoundKey with tweaked key 10
+    set req.http.X-Func-xor_hex32-a = substr(var.round_keys, 320, 32);
+    set req.http.X-Func-xor_hex32-b = var.padded_tweak;
+    call xor_hex32;
+    declare local var.tweaked_key10 STRING;
+    set var.tweaked_key10 = req.http.X-Func-xor_hex32-Return;
+
+    set req.http.X-Func-xor_hex32-a = var.state;
+    set req.http.X-Func-xor_hex32-b = var.tweaked_key10;
+    call xor_hex32;
+    set var.state = req.http.X-Func-xor_hex32-Return;
+
+    set req.http.X-Func-kiasu_bc_encrypt-Return = var.state;
+}
+
+# Function: kiasu_bc_decrypt
+# Decrypts a 16-byte block using KIASU-BC (tweaked AES)
+sub kiasu_bc_decrypt {
+    declare local var.key STRING;
+    declare local var.tweak STRING;
+    declare local var.ciphertext STRING;
+    set var.key = req.http.X-Func-kiasu_bc_decrypt-key;
+    set var.tweak = req.http.X-Func-kiasu_bc_decrypt-tweak;
+    set var.ciphertext = req.http.X-Func-kiasu_bc_decrypt-ciphertext;
+
+    // Expand key
+    set req.http.X-Func-aes_key_expansion-key = var.key;
+    call aes_key_expansion;
+    declare local var.round_keys STRING;
+    set var.round_keys = req.http.X-Func-aes_key_expansion-Return;
+
+    // Pad tweak
+    set req.http.X-Func-pad_tweak-tweak = var.tweak;
+    call pad_tweak;
+    declare local var.padded_tweak STRING;
+    set var.padded_tweak = req.http.X-Func-pad_tweak-Return;
+
+    declare local var.state STRING;
+
+    // Initial: state = ciphertext XOR (round_key[10] XOR padded_tweak)
+    set req.http.X-Func-xor_hex32-a = substr(var.round_keys, 320, 32);
+    set req.http.X-Func-xor_hex32-b = var.padded_tweak;
+    call xor_hex32;
+    declare local var.dec_tweaked_key10 STRING;
+    set var.dec_tweaked_key10 = req.http.X-Func-xor_hex32-Return;
+
+    set req.http.X-Func-xor_hex32-a = var.ciphertext;
+    set req.http.X-Func-xor_hex32-b = var.dec_tweaked_key10;
+    call xor_hex32;
+    set var.state = req.http.X-Func-xor_hex32-Return;
+
+    // InvShiftRows
+    set req.http.X-Func-aes_inv_shift_rows-state = var.state;
+    call aes_inv_shift_rows;
+    set var.state = req.http.X-Func-aes_inv_shift_rows-Return;
+
+    // InvSubBytes
+    set req.http.X-Func-aes_inv_sub_bytes-state = var.state;
+    call aes_inv_sub_bytes;
+    set var.state = req.http.X-Func-aes_inv_sub_bytes-Return;
+
+    // Main rounds 9 down to 1
+#for round in range(9, 0, -1)
+    // AddRoundKey with tweaked key
+    set req.http.X-Func-xor_hex32-a = substr(var.round_keys, {{round * 32}}, 32);
+    set req.http.X-Func-xor_hex32-b = var.padded_tweak;
+    call xor_hex32;
+    declare local var.dec_tweaked_key{{round}} STRING;
+    set var.dec_tweaked_key{{round}} = req.http.X-Func-xor_hex32-Return;
+
+    set req.http.X-Func-xor_hex32-a = var.state;
+    set req.http.X-Func-xor_hex32-b = var.dec_tweaked_key{{round}};
+    call xor_hex32;
+    set var.state = req.http.X-Func-xor_hex32-Return;
+
+    // InvMixColumns
+    set req.http.X-Func-aes_inv_mix_columns-state = var.state;
+    call aes_inv_mix_columns;
+    set var.state = req.http.X-Func-aes_inv_mix_columns-Return;
+
+    // InvShiftRows
+    set req.http.X-Func-aes_inv_shift_rows-state = var.state;
+    call aes_inv_shift_rows;
+    set var.state = req.http.X-Func-aes_inv_shift_rows-Return;
+
+    // InvSubBytes
+    set req.http.X-Func-aes_inv_sub_bytes-state = var.state;
+    call aes_inv_sub_bytes;
+    set var.state = req.http.X-Func-aes_inv_sub_bytes-Return;
+#endfor
+
+    // Final: XOR with (round_key[0] XOR padded_tweak)
+    set req.http.X-Func-xor_hex32-a = substr(var.round_keys, 0, 32);
+    set req.http.X-Func-xor_hex32-b = var.padded_tweak;
+    call xor_hex32;
+    declare local var.dec_tweaked_key0 STRING;
+    set var.dec_tweaked_key0 = req.http.X-Func-xor_hex32-Return;
+
+    set req.http.X-Func-xor_hex32-a = var.state;
+    set req.http.X-Func-xor_hex32-b = var.dec_tweaked_key0;
+    call xor_hex32;
+    set var.state = req.http.X-Func-xor_hex32-Return;
+
+    set req.http.X-Func-kiasu_bc_decrypt-Return = var.state;
+}
+
+# === MAIN FUNCTIONS ===
+
+# Function: ipcrypt_nd_encrypt
+# Encrypts an IP address using ipcrypt-nd (KIASU-BC with 8-byte tweak)
+# Returns: 48-character hex string (8-byte tweak + 16-byte ciphertext)
+sub ipcrypt_nd_encrypt {
+    declare local var.input_ip IP;
+    declare local var.key STRING;
+    declare local var.tweak STRING;
+    set var.input_ip = req.http.X-Func-ipcrypt_nd_encrypt-ip;
+    set var.key = req.http.X-Func-ipcrypt_nd_encrypt-key;
+    set var.tweak = req.http.X-Func-ipcrypt_nd_encrypt-tweak;
+
+    // Step 1: Convert IP to 16-byte hex representation
+    set req.http.X-Func-ip_to_hex128-ip = var.input_ip;
+    call ip_to_hex128;
+    declare local var.hex128 STRING;
+    set var.hex128 = req.http.X-Func-ip_to_hex128-Return;
+
+    // Step 2: Encrypt using KIASU-BC
+    set req.http.X-Func-kiasu_bc_encrypt-key = var.key;
+    set req.http.X-Func-kiasu_bc_encrypt-tweak = var.tweak;
+    set req.http.X-Func-kiasu_bc_encrypt-plaintext = var.hex128;
+    call kiasu_bc_encrypt;
+    declare local var.ciphertext STRING;
+    set var.ciphertext = req.http.X-Func-kiasu_bc_encrypt-Return;
+
+    // Step 3: Return tweak || ciphertext
+    set req.http.X-Func-ipcrypt_nd_encrypt-Return = var.tweak + var.ciphertext;
+}
+
+# Function: ipcrypt_nd_decrypt
+# Decrypts an ipcrypt-nd encrypted value
+# Input: 48-character hex string (8-byte tweak + 16-byte ciphertext)
+sub ipcrypt_nd_decrypt {
+    declare local var.encrypted STRING;
+    declare local var.key STRING;
+    set var.encrypted = req.http.X-Func-ipcrypt_nd_decrypt-encrypted;
+    set var.key = req.http.X-Func-ipcrypt_nd_decrypt-key;
+
+    // Step 1: Split into tweak and ciphertext
+    declare local var.tweak STRING;
+    declare local var.ciphertext STRING;
+    set var.tweak = substr(var.encrypted, 0, 16);  // 8 bytes = 16 hex chars
+    set var.ciphertext = substr(var.encrypted, 16, 32);  // 16 bytes = 32 hex chars
+
+    // Step 2: Decrypt using KIASU-BC
+    set req.http.X-Func-kiasu_bc_decrypt-key = var.key;
+    set req.http.X-Func-kiasu_bc_decrypt-tweak = var.tweak;
+    set req.http.X-Func-kiasu_bc_decrypt-ciphertext = var.ciphertext;
+    call kiasu_bc_decrypt;
+    declare local var.hex128 STRING;
+    set var.hex128 = req.http.X-Func-kiasu_bc_decrypt-Return;
+
+    // Step 3: Convert to IP format
+    set req.http.X-Func-hex128_to_ipv6-hex128 = var.hex128;
+    call hex128_to_ipv6;
+    set req.http.X-Func-ipcrypt_nd_decrypt-Return = req.http.X-Func-hex128_to_ipv6-Return;
+}
+
+# === TEST SUBROUTINE ===
+
+sub vcl_recv {
+    #FASTLY RECV
+
+    // Test vector 1: 0.0.0.0
+    // Key:    0123456789abcdeffedcba9876543210
+    // Tweak:  08e0c289bff23b7c
+    // Output: 08e0c289bff23b7cb349aadfe3bcef56221c384c7c217b16
+    set req.http.X-Func-ipcrypt_nd_encrypt-ip = "0.0.0.0";
+    set req.http.X-Func-ipcrypt_nd_encrypt-key = "0123456789abcdeffedcba9876543210";
+    set req.http.X-Func-ipcrypt_nd_encrypt-tweak = "08e0c289bff23b7c";
+    call ipcrypt_nd_encrypt;
+    set req.http.X-Test1-Result = req.http.X-Func-ipcrypt_nd_encrypt-Return;
+    set req.http.X-Test1-Expected = "08e0c289bff23b7cb349aadfe3bcef56221c384c7c217b16";
+
+    // Decrypt test 1
+    set req.http.X-Func-ipcrypt_nd_decrypt-encrypted = req.http.X-Test1-Result;
+    set req.http.X-Func-ipcrypt_nd_decrypt-key = "0123456789abcdeffedcba9876543210";
+    call ipcrypt_nd_decrypt;
+    set req.http.X-Test1-Decrypted = req.http.X-Func-ipcrypt_nd_decrypt-Return;
+
+    // Test vector 2: 192.0.2.1
+    // Key:    1032547698badcfeefcdab8967452301
+    // Tweak:  21bd1834bc088cd2
+    // Output: 21bd1834bc088cd2e5e1fe55f95876e639faae2594a0caad
+    set req.http.X-Func-ipcrypt_nd_encrypt-ip = "192.0.2.1";
+    set req.http.X-Func-ipcrypt_nd_encrypt-key = "1032547698badcfeefcdab8967452301";
+    set req.http.X-Func-ipcrypt_nd_encrypt-tweak = "21bd1834bc088cd2";
+    call ipcrypt_nd_encrypt;
+    set req.http.X-Test2-Result = req.http.X-Func-ipcrypt_nd_encrypt-Return;
+    set req.http.X-Test2-Expected = "21bd1834bc088cd2e5e1fe55f95876e639faae2594a0caad";
+
+    // Decrypt test 2
+    set req.http.X-Func-ipcrypt_nd_decrypt-encrypted = req.http.X-Test2-Result;
+    set req.http.X-Func-ipcrypt_nd_decrypt-key = "1032547698badcfeefcdab8967452301";
+    call ipcrypt_nd_decrypt;
+    set req.http.X-Test2-Decrypted = req.http.X-Func-ipcrypt_nd_decrypt-Return;
+
+    // Test vector 3: 2001:db8::1
+    // Key:    2b7e151628aed2a6abf7158809cf4f3c
+    // Tweak:  b4ecbe30b70898d7
+    // Output: b4ecbe30b70898d7553ac8974d1b4250eafc4b0aa1f80c96
+    set req.http.X-Func-ipcrypt_nd_encrypt-ip = "2001:db8::1";
+    set req.http.X-Func-ipcrypt_nd_encrypt-key = "2b7e151628aed2a6abf7158809cf4f3c";
+    set req.http.X-Func-ipcrypt_nd_encrypt-tweak = "b4ecbe30b70898d7";
+    call ipcrypt_nd_encrypt;
+    set req.http.X-Test3-Result = req.http.X-Func-ipcrypt_nd_encrypt-Return;
+    set req.http.X-Test3-Expected = "b4ecbe30b70898d7553ac8974d1b4250eafc4b0aa1f80c96";
+
+    // Decrypt test 3
+    set req.http.X-Func-ipcrypt_nd_decrypt-encrypted = req.http.X-Test3-Result;
+    set req.http.X-Func-ipcrypt_nd_decrypt-key = "2b7e151628aed2a6abf7158809cf4f3c";
+    call ipcrypt_nd_decrypt;
+    set req.http.X-Test3-Decrypted = req.http.X-Func-ipcrypt_nd_decrypt-Return;
+
+    return(lookup);
+}
