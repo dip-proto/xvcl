@@ -1182,15 +1182,11 @@ class XVCLCompiler:
         # Read parameters from globals with type conversion
         for param_name, param_type in func.params:
             global_name = func.get_param_global(param_name)
-            if param_type == "INTEGER":
-                self.output.append(f"  set var.{param_name} = std.atoi({global_name});")
-            elif param_type == "FLOAT":
-                self.output.append(f"  set var.{param_name} = std.atof({global_name});")
-            elif param_type == "BOOL":
-                self.output.append(f'  set var.{param_name} = ({global_name} == "true");')
-            else:
-                # STRING and others
-                self.output.append(f"  set var.{param_name} = {global_name};")
+            self.output.extend(
+                self._from_global_conversion_lines(
+                    "  ", f"var.{param_name}", global_name, param_type
+                )
+            )
 
         if func.params:
             self.output.append("")
@@ -1268,21 +1264,44 @@ class XVCLCompiler:
         self.output.append("}")
         self.output.append("")
 
-    def _write_return_conversion(self, global_var: str, local_var: str, var_type: str) -> None:
-        """Helper to write type conversion for return value."""
-        if var_type == "INTEGER":
-            self.output.append(f"  set {global_var} = std.itoa({local_var});")
-        elif var_type == "FLOAT":
-            self.output.append(f'  set {global_var} = "" + {local_var};')
-        elif var_type == "BOOL":
-            self.output.append(f"  if ({local_var}) {{")
-            self.output.append(f'    set {global_var} = "true";')
-            self.output.append("  } else {")
-            self.output.append(f'    set {global_var} = "false";')
-            self.output.append("  }")
+    def _to_global_conversion_lines(
+        self, prefix: str, global_name: str, value_expr: str, value_type: str
+    ) -> list[str]:
+        """Build statements that store a typed value in a STRING-backed global."""
+        lines = []
+        if value_type == "INTEGER":
+            lines.append(f"{prefix}set {global_name} = std.itoa({value_expr});")
+        elif value_type == "FLOAT":
+            lines.append(f'{prefix}set {global_name} = "" + {value_expr};')
+        elif value_type == "BOOL":
+            lines.append(f"{prefix}if ({value_expr}) {{")
+            lines.append(f'{prefix}  set {global_name} = "true";')
+            lines.append(f"{prefix}}} else {{")
+            lines.append(f'{prefix}  set {global_name} = "false";')
+            lines.append(f"{prefix}}}")
         else:
             # STRING and others
-            self.output.append(f"  set {global_var} = {local_var};")
+            lines.append(f"{prefix}set {global_name} = {value_expr};")
+        return lines
+
+    def _from_global_conversion_lines(
+        self, prefix: str, result_var: str, global_name: str, value_type: str
+    ) -> list[str]:
+        """Build statements that read a typed value from a STRING-backed global."""
+        lines = []
+        if value_type == "INTEGER":
+            lines.append(f"{prefix}set {result_var} = std.atoi({global_name});")
+        elif value_type == "FLOAT":
+            lines.append(f"{prefix}set {result_var} = std.atof({global_name});")
+        elif value_type == "BOOL":
+            lines.append(f'{prefix}set {result_var} = ({global_name} == "true");')
+        else:
+            lines.append(f"{prefix}set {result_var} = {global_name};")
+        return lines
+
+    def _write_return_conversion(self, global_var: str, local_var: str, var_type: str) -> None:
+        """Helper to write type conversion for return value."""
+        self.output.extend(self._to_global_conversion_lines("  ", global_var, local_var, var_type))
 
     def _process_lines(
         self, lines: list[str], start: int, end: int, context: dict[str, Any]
@@ -1946,35 +1965,13 @@ class XVCLCompiler:
         self, prefix: str, global_name: str, arg: str, param_type: str
     ) -> list[str]:
         """Convert parameter to global with type conversion."""
-        lines = []
-        if param_type == "INTEGER":
-            lines.append(f"{prefix}set {global_name} = std.itoa({arg});")
-        elif param_type == "FLOAT":
-            lines.append(f'{prefix}set {global_name} = "" + {arg};')
-        elif param_type == "BOOL":
-            lines.append(f"{prefix}if ({arg}) {{")
-            lines.append(f'{prefix}  set {global_name} = "true";')
-            lines.append(f"{prefix}}} else {{")
-            lines.append(f'{prefix}  set {global_name} = "false";')
-            lines.append(f"{prefix}}}")
-        else:
-            lines.append(f"{prefix}set {global_name} = {arg};")
-        return lines
+        return self._to_global_conversion_lines(prefix, global_name, arg, param_type)
 
     def _global_to_var(
         self, prefix: str, result_var: str, return_global: str, ret_type: str
     ) -> list[str]:
         """Convert global to variable with type conversion."""
-        lines = []
-        if ret_type == "INTEGER":
-            lines.append(f"{prefix}set {result_var} = std.atoi({return_global});")
-        elif ret_type == "FLOAT":
-            lines.append(f"{prefix}set {result_var} = std.atof({return_global});")
-        elif ret_type == "BOOL":
-            lines.append(f'{prefix}set {result_var} = ({return_global} == "true");')
-        else:
-            lines.append(f"{prefix}set {result_var} = {return_global};")
-        return lines
+        return self._from_global_conversion_lines(prefix, result_var, return_global, ret_type)
 
     _VCL_DECL_PATTERN = re.compile(
         r"^\s*(?:backend|sub|table|acl|director|penaltybox|ratecounter)\s+([\w.-]+)"
