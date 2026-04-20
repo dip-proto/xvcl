@@ -874,17 +874,27 @@ class XVCLCompiler:
 
     def _resolve_include_path(self, include_path: str, current_file: str) -> Optional[str]:
         """Resolve include path by searching include paths."""
+
+        def resolve_from_root(root: str) -> Optional[str]:
+            root = os.path.realpath(root)
+            candidate = os.path.realpath(os.path.join(root, include_path))
+            if os.path.commonpath([root, candidate]) != root:
+                return None
+            if os.path.exists(candidate):
+                return candidate
+            return None
+
         # Try relative to current file first
         if current_file and current_file != "<string>":
             current_dir = os.path.dirname(os.path.abspath(current_file))
-            candidate = os.path.join(current_dir, include_path)
-            if os.path.exists(candidate):
+            candidate = resolve_from_root(current_dir)
+            if candidate:
                 return candidate
 
         # Try include paths
         for search_path in self.include_paths:
-            candidate = os.path.join(search_path, include_path)
-            if os.path.exists(candidate):
+            candidate = resolve_from_root(search_path)
+            if candidate:
                 return candidate
 
         return None
