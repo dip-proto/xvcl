@@ -92,10 +92,10 @@ set req.http.X-Hex = "{{hex(PORT)}}";
 #let name TYPE = expression;
 
 // Example:
-#let timestamp STRING = std.time(now, now);
+#let timestamp STRING = strftime({"%Y-%m-%dT%H:%M:%SZ"}, now);
 // Expands to:
 //   declare local var.timestamp STRING;
-//   set var.timestamp = std.time(now, now);
+//   set var.timestamp = strftime({"%Y-%m-%dT%H:%M:%SZ"}, now);
 ```
 
 ### File Includes
@@ -211,13 +211,13 @@ backend F_{{backend}} {
 
 ```vcl
 #const PRODUCTION = True
+#const CACHE_TTL = 3600 if PRODUCTION else 60
+#const BACKEND_HOST = "prod.example.com" if PRODUCTION else "dev.example.com"
 
 #if PRODUCTION
-  #const CACHE_TTL = 3600
-  #const BACKEND_HOST = "prod.example.com"
+  set req.http.X-Environment = "production";
 #else
-  #const CACHE_TTL = 60
-  #const BACKEND_HOST = "dev.example.com"
+  set req.http.X-Environment = "development";
 #endif
 ```
 
@@ -244,7 +244,7 @@ set req.http.X-Clean-Host = normalize_host(req.http.Host);
   return true;
 #enddef
 
-set var.cacheable = should_cache(req.url, req.request);
+set var.cacheable = should_cache(req.url, req.method);
 ```
 
 ## Macros vs Functions

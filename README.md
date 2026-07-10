@@ -55,7 +55,7 @@ Think of it as a build step for your VCL: write enhanced VCL source files, run x
 
 ## Why Use xvcl?
 
-VCL is powerful but limited by design. You can't define functions with return values, you can't use loops, and managing constants means find-and-replace. This leads to:
+VCL is powerful but has no compile-time loops, tuple returns, or named compile-time constants. Native typed subroutines cover ordinary parameters and single return values; xvcl adds generation and tuple-oriented abstractions on top. Without a preprocessing layer, this leads to:
 
 - **Copy-paste errors:** Similar backends? Copy, paste, modify, repeat, make mistakes
 - **Magic numbers:** Hardcoded values scattered throughout your code
@@ -435,6 +435,9 @@ sub vcl_recv {
 #const ENABLE_NEW_ROUTING = True
 #const ENABLE_RATE_LIMITING = False
 
+penaltybox client_penalty { }
+ratecounter client_rate { }
+
 sub vcl_recv {
 #if ENABLE_NEW_ROUTING
   call new_routing_logic;
@@ -443,7 +446,7 @@ sub vcl_recv {
 #endif
 
 #if ENABLE_RATE_LIMITING
-  if (ratelimit.check_rate("client_" + client.ip, 1, 100, 60s, 1000s)) {
+  if (ratelimit.check_rate(client.ip, client_rate, 1, 60, 100, client_penalty, 10m)) {
     error 429 "Too Many Requests";
   }
 #endif
@@ -471,11 +474,11 @@ Declare and initialize local variables in one step.
 
 ```vcl
 sub vcl_recv {
-  #let timestamp STRING = std.time(now, now);
+  #let timestamp STRING = strftime({"%Y-%m-%dT%H:%M:%SZ"}, now);
   #let cache_key STRING = req.url.path + req.http.Host;
 
   set req.http.X-Timestamp = var.timestamp;
-  set req.hash = var.cache_key;
+  set req.hash += var.cache_key;
 }
 ```
 
@@ -484,12 +487,12 @@ sub vcl_recv {
 ```vcl
 sub vcl_recv {
   declare local var.timestamp STRING;
-  set var.timestamp = std.time(now, now);
+  set var.timestamp = strftime({"%Y-%m-%dT%H:%M:%SZ"}, now);
   declare local var.cache_key STRING;
   set var.cache_key = req.url.path + req.http.Host;
 
   set req.http.X-Timestamp = var.timestamp;
-  set req.hash = var.cache_key;
+  set req.hash += var.cache_key;
 }
 ```
 
@@ -562,6 +565,7 @@ xvcl main.xvcl -o main.vcl -I ./vcl/includes
 - **Include-once semantics:** Files are only included once even if referenced multiple times
 - **Cycle detection:** Prevents circular includes
 - **Shared constants:** Constants defined in included files are available to the parent
+- **Compilation-wide names:** Redefining a constant in any included file is an error
 
 **Why use includes?**
 
@@ -623,7 +627,7 @@ digest.hash_md5(url + "|" + host)
 
 sub vcl_recv {
   set req.http.X-Normalized = normalize_host(req.http.Host);
-  set req.hash = cache_key(req.url, req.http.Host);
+  set req.hash += cache_key(req.url, req.http.Host);
 }
 ```
 
@@ -632,24 +636,25 @@ sub vcl_recv {
 ```vcl
 sub vcl_recv {
   set req.http.X-Normalized = std.tolower(regsub(req.http.Host, "^www\.", ""));
-  set req.hash = digest.hash_md5(req.url + "|" + req.http.Host);
+  set req.hash += digest.hash_md5(req.url + "|" + req.http.Host);
 }
 ```
 
-**Example 3: Operator precedence handling**
-
-xvcl automatically handles operator precedence:
+**Example 3: Boolean expression macro**
 
 ```vcl
-#inline double(x)
-x + x
+#inline is_cacheable(method, path)
+method == "GET" && path !~ "^/private/"
 #endinline
 
 sub vcl_recv {
-  declare local var.result INTEGER;
-  set var.result = double(5) * 10;  // Correctly expands to (5 + 5) * 10
+  if (is_cacheable(req.method, req.url.path)) {
+    set req.http.X-Cacheable = "1";
+  }
 }
 ```
+
+Macros perform token substitution; they do not add a new expression grammar to VCL. Fastly VCL permits grouping for boolean expressions, while numeric arithmetic uses assignment operators such as `+=` and `*=` rather than general expressions. Validate expanded macros with Falco.
 
 **Macros vs Functions:**
 
@@ -691,7 +696,8 @@ Define reusable functions with parameters and return values. Functions are compi
 ```vcl
 #def add(a INTEGER, b INTEGER) -> INTEGER
   declare local var.sum INTEGER;
-  set var.sum = a + b;
+  set var.sum = a;
+  set var.sum += b;
   return var.sum;
 #enddef
 
@@ -1263,17 +1269,16 @@ xvcl main.xvcl -o main.vcl -I ./includes
 **Problem:** Macro expands incorrectly.
 
 ```vcl
-#inline double(x)
-x + x
+#inline is_asset(path)
+path ~ "\\.(?:css|js)$"
 #endinline
 
-set var.result = double(1 + 2);
-// Expands to: (1 + 2) + (1 + 2)  ✓ Correct
+if (is_asset(req.url.path)) {
+  set req.http.X-Asset = "1";
+}
 ```
 
-xvcl automatically adds parentheses when needed.
-
-**If you see issues:** Check operator precedence in your macro definition.
+**If you see issues:** Inspect the generated VCL and check the macro against Fastly's expression rules. Macro expansion is textual, and general numeric expressions such as `a + b * c` are not part of VCL.
 
 ### Function calls not working
 
@@ -1281,7 +1286,10 @@ xvcl automatically adds parentheses when needed.
 
 ```vcl
 #def add(a INTEGER, b INTEGER) -> INTEGER
-  return a + b;
+  declare local var.sum INTEGER;
+  set var.sum = a;
+  set var.sum += b;
+  return var.sum;
 #enddef
 
 set var.result = add(5, 10);
