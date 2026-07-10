@@ -1,0 +1,4 @@
+// ERROR: Function 'duplicate' has duplicate parameter 'value'
+#def duplicate(value STRING, value STRING) -> STRING
+    return value;
+#enddef

@@ -1,0 +1,1 @@
+#include "tests/xvcl/error_circular_include_root.xvcl"

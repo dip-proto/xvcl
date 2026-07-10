@@ -1,0 +1,4 @@
+// ERROR: Function parameter 'return_value' conflicts with generated return storage
+#def conflict(return_value STRING) -> STRING
+    return return_value;
+#enddef

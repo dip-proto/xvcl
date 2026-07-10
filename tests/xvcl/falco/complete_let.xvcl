@@ -20,6 +20,13 @@ sub vcl_recv {
     #let timestamp STRING = strftime({"%Y-%m-%d"}, now);
     set req.http.X-Date = var.timestamp;
 
+    #let normalized STRING = regsub(
+        req.url.path, // preserve this line-comment boundary
+        "/+",
+        "/"
+    );
+    set req.http.X-Normalized = var.normalized;
+
     return(lookup);
 }
 

@@ -1,0 +1,2 @@
+// ERROR: Type 'BACKEND' is not supported for constants
+#const ORIGIN BACKEND = "F_origin"

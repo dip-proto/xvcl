@@ -2,7 +2,7 @@
 sub vcl_recv {
     // Simple let with string
     declare local var.timestamp STRING;
-    set var.timestamp = std.time(now, now);
+    set var.timestamp = strftime({"%Y-%m-%dT%H:%M:%SZ"}, now);
     set req.http.X-Timestamp = var.timestamp;
 
     // Let with integer
@@ -13,5 +13,5 @@ sub vcl_recv {
     // Let inside conditionals
     declare local var.cache_key STRING;
     set var.cache_key = req.url.path;
-    set req.hash = var.cache_key;
+    set req.hash += var.cache_key;
 }

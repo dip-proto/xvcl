@@ -8,4 +8,7 @@ set req.http.X-Other = req.http.Host;
 
 // Multi-line macro
 
-backend origin { .host = "origin.example.com"; .port = "443"; }
+backend origin {
+    .host = "origin.example.com";
+    .port = "443";
+}

@@ -20,6 +20,11 @@ digest.hash_md5(path + "|" + host)
 url ~ "\\.(jpg|png|gif|css|js|ico)$"
 #endinline
 
+#inline set_headers(value)
+set req.http.X-First = value; // the next statement must remain executable
+set req.http.X-Second = value;
+#endinline
+
 sub vcl_recv {
     #FASTLY recv
 
@@ -29,6 +34,8 @@ sub vcl_recv {
     declare local var.key STRING;
     set var.key = cache_key(req.url.path, req.http.Host);
     set req.http.X-Cache-Key = var.key;
+
+    set_headers("both")
 
     if (is_static(req.url.path)) {
         set req.http.X-Static = "true";

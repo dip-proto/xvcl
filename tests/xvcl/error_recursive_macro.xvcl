@@ -1,0 +1,8 @@
+// ERROR: Recursive macro expansion detected
+#inline recursive(value)
+recursive(value)
+#endinline
+
+sub vcl_recv {
+    set req.http.X-Value = recursive("value");
+}

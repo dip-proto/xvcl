@@ -35,6 +35,6 @@ sub process {
     declare local var.result STRING;
     set var.result = var.prefix + var.input + var.suffix;
     set var.return_value = var.result;
-
-  set req.http.X-Func-process-Return = var.return_value;
+    set req.http.X-Func-process-Return = var.return_value;
+    return;
 }

@@ -27,6 +27,6 @@ sub echo {
   declare local var.return_value STRING;
 
   set var.return_value = var.s;
-
   set req.http.X-Func-echo-Return = var.return_value;
+  return;
 }

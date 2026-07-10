@@ -45,13 +45,15 @@ sub divmod {
 
     declare local var.quotient INTEGER;
     declare local var.remainder INTEGER;
-    set var.quotient = var.a / var.b;
-    set var.remainder = var.a % var.b;
+    set var.quotient = var.a;
+    set var.quotient /= var.b;
+    set var.remainder = var.a;
+    set var.remainder %= var.b;
     set var.return_value0 = var.quotient;
     set var.return_value1 = var.remainder;
-
-  set req.http.X-Func-divmod-Return0 = std.itoa(var.return_value0);
-  set req.http.X-Func-divmod-Return1 = std.itoa(var.return_value1);
+    set req.http.X-Func-divmod-Return0 = std.itoa(var.return_value0);
+    set req.http.X-Func-divmod-Return1 = std.itoa(var.return_value1);
+    return;
 }
 
 // Function: parse_pair
@@ -71,9 +73,9 @@ sub parse_pair {
     set var.value = regsub(var.s, "^[^:]*:", "");
     set var.return_value0 = var.key;
     set var.return_value1 = var.value;
-
-  set req.http.X-Func-parse_pair-Return0 = var.return_value0;
-  set req.http.X-Func-parse_pair-Return1 = var.return_value1;
+    set req.http.X-Func-parse_pair-Return0 = var.return_value0;
+    set req.http.X-Func-parse_pair-Return1 = var.return_value1;
+    return;
 }
 
 // Function: get_stats
@@ -109,12 +111,14 @@ sub get_stats {
     } else {
         set var.max = var.c;
     }
-    set var.sum = var.a + var.b + var.c;
+    set var.sum = var.a;
+    set var.sum += var.b;
+    set var.sum += var.c;
     set var.return_value0 = var.min;
     set var.return_value1 = var.max;
     set var.return_value2 = var.sum;
-
-  set req.http.X-Func-get_stats-Return0 = std.itoa(var.return_value0);
-  set req.http.X-Func-get_stats-Return1 = std.itoa(var.return_value1);
-  set req.http.X-Func-get_stats-Return2 = std.itoa(var.return_value2);
+    set req.http.X-Func-get_stats-Return0 = std.itoa(var.return_value0);
+    set req.http.X-Func-get_stats-Return1 = std.itoa(var.return_value1);
+    set req.http.X-Func-get_stats-Return2 = std.itoa(var.return_value2);
+    return;
 }

@@ -1,9 +1,7 @@
 // Test: Advanced macro features
 
-// Macro with operator precedence
+// Boolean expression macros
 
-
-// Nested macros
 
 
 // Macro with string operations
@@ -13,16 +11,10 @@
 
 
 sub vcl_recv {
-    declare local var.result INTEGER;
-
-    // Test operator precedence: should be (5 + 5) * 10 = 100
-    set var.result = 5 + 5 * 10;
-
-    // Test square with expression: should be ((2 + 3) * (2 + 3))
-    set var.result = (2 + 3) * (2 + 3);
-
-    // Test nested macro calls
-    set var.result = 2 * 3 + 4 * 5;
+    // Test nested boolean macro calls
+    if (req.method == "GET" && req.url.path ~ "\\.(?:css|js)$") {
+        set req.http.X-Asset-Get = "1";
+    }
 
     declare local var.str STRING;
 

@@ -1,0 +1,38 @@
+// Test: Macro and function-looking text in strings and comments
+
+#inline suffix(value)
+value + "-expanded"
+#endinline
+
+#inline set_headers(value)
+set req.http.X-First = value; // the next statement must remain executable
+set req.http.X-Second = value;
+#endinline
+
+#inline preserve_tokens(value)
+"value literal" + req.http.value + value
+#endinline
+
+#inline increment(number)
+"{{number + 1}}"
+#endinline
+
+#def echo(value STRING) -> STRING
+    #let copied STRING = value;
+    return var.copied;
+#enddef
+
+sub vcl_recv {
+    declare local var.output STRING;
+
+    set req.http.X-String = "suffix(req.url)";
+    set req.http.X-Set = "set var.output = missing();";
+    // suffix(req.url)
+    // set var.output = missing();
+
+    set req.http.X-Expanded = suffix("input");
+    set req.http.X-Preserved = preserve_tokens("input");
+    set req.http.X-Incremented = increment(1);
+    set_headers("both")
+    set var.output = echo("result");
+}

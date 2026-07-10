@@ -1,0 +1,4 @@
+// ERROR: Loop expression '1' is not iterable
+#for item in 1
+set req.http.X-Item = "{{item}}";
+#endfor

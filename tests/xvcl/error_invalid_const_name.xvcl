@@ -1,0 +1,2 @@
+// ERROR: Invalid constant name '1PORT'
+#const 1PORT INTEGER = 443

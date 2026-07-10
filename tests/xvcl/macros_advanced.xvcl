@@ -1,21 +1,16 @@
 // Test: Advanced macro features
 
-// Macro with operator precedence
-#inline double(x)
-x + x
+// Boolean expression macros
+#inline is_get(method)
+method == "GET"
 #endinline
 
-#inline square(x)
-x * x
+#inline is_asset(path)
+path ~ "\\.(?:css|js)$"
 #endinline
 
-// Nested macros
-#inline add(a, b)
-a + b
-#endinline
-
-#inline mul(a, b)
-a * b
+#inline both(left, right)
+left && right
 #endinline
 
 // Macro with string operations
@@ -37,16 +32,10 @@ digest.hash_md5(url + "|" + host)
 #endinline
 
 sub vcl_recv {
-    declare local var.result INTEGER;
-
-    // Test operator precedence: should be (5 + 5) * 10 = 100
-    set var.result = double(5) * 10;
-
-    // Test square with expression: should be ((2 + 3) * (2 + 3))
-    set var.result = square(2 + 3);
-
-    // Test nested macro calls
-    set var.result = add(mul(2, 3), mul(4, 5));
+    // Test nested boolean macro calls
+    if (both(is_get(req.method), is_asset(req.url.path))) {
+        set req.http.X-Asset-Get = "1";
+    }
 
     declare local var.str STRING;
 

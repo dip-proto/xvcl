@@ -1,0 +1,2 @@
+// ERROR: Invalid #let variable name '1value'
+#let 1value STRING = "value";

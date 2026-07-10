@@ -1,0 +1,7 @@
+// ERROR: Generated duplicate VCL declaration 'repeated'
+#inline duplicate_backends()
+backend repeated { .host = "one.example.com"; }
+backend repeated { .host = "two.example.com"; }
+#endinline
+
+duplicate_backends()

@@ -1,0 +1,2 @@
+// ERROR: Constant 'COUNT' type mismatch: expected INTEGER, got bool
+#const COUNT INTEGER = true

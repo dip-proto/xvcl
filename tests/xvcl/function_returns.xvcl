@@ -1,0 +1,35 @@
+// Test: Function return control flow and parameter token substitution
+
+#def choose(value STRING) -> STRING
+    if (value == "first") {
+        return "value literal"; // parameter names in strings must remain literal
+    }
+    if (value == "long") {
+        return {"value literal"};
+    }
+    set req.http.value = value;
+    return regsub(value, ",", ";");
+#enddef
+
+#def split(value STRING) -> (STRING, STRING)
+    return regsub(value, ",", ";"), "value literal";
+#enddef
+
+#def normalize(value STRING) -> STRING
+    return regsub(
+        value,
+        ",",
+        ";"
+    );
+#enddef
+
+sub vcl_recv {
+    declare local var.result STRING;
+    set var.result = choose("first");
+
+    declare local var.left STRING;
+    declare local var.right STRING;
+    set var.left, var.right = split("left,right");
+
+    set var.result = normalize("left,right");
+}

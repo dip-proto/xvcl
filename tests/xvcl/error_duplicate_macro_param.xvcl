@@ -1,0 +1,4 @@
+// ERROR: Macro 'duplicate' has duplicate parameter 'value'
+#inline duplicate(value, value)
+value
+#endinline

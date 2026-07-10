@@ -106,6 +106,28 @@ class TestErrors:
         )
 
 
+class TestCLI:
+    """Tests for command-line path handling."""
+
+    def test_default_output_replaces_only_the_final_suffix(self, tmp_path: Path):
+        """A .xvcl directory name must not be changed when deriving the output path."""
+        source_dir = tmp_path / "sources.xvcl"
+        source_dir.mkdir()
+        source_file = source_dir / "main.xvcl"
+        source_file.write_text("sub vcl_recv {\n}\n")
+
+        result = subprocess.run(
+            [sys.executable, "-m", "xvcl.compiler", str(source_file)],
+            capture_output=True,
+            text=True,
+            cwd=TESTS_DIR.parent,
+        )
+
+        output_file = source_dir / "main.vcl"
+        assert result.returncode == 0, strip_ansi(result.stderr)
+        assert output_file.read_text().strip() == "sub vcl_recv {\n}"
+
+
 FALCO_DIR = XVCL_DIR / "falco"
 
 
@@ -160,3 +182,36 @@ class TestFalcoValidation:
             assert falco_returncode == 0, (
                 f"falco lint failed for {name}:\n{falco_output}\n\nGenerated VCL:\n{output}"
             )
+
+    @pytest.mark.parametrize(
+        "name,xvcl_file",
+        [case for case in get_falco_tests() if case[1].with_suffix(".test.vcl").exists()],
+    )
+    def test_falco_runtime(self, name: str, xvcl_file: Path):
+        """Test generated VCL behavior with an adjacent Falco test file."""
+        import shutil
+
+        falco_path = shutil.which("falco")
+        if falco_path is None:
+            pytest.skip("falco not installed")
+
+        output, stderr, returncode = compile_xvcl(xvcl_file)
+        assert returncode == 0, f"Compilation failed:\n{strip_ansi(stderr)}"
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            main_file = Path(temp_dir) / f"{name}.vcl"
+            test_file = Path(temp_dir) / f"{name}.test.vcl"
+            main_file.write_text(output)
+            test_file.write_text(xvcl_file.with_suffix(".test.vcl").read_text())
+
+            result = subprocess.run(
+                [falco_path, "test", str(main_file)],
+                capture_output=True,
+                text=True,
+                cwd=temp_dir,
+            )
+
+        falco_output = result.stdout + result.stderr
+        assert result.returncode == 0, (
+            f"falco test failed for {name}:\n{falco_output}\n\nGenerated VCL:\n{output}"
+        )

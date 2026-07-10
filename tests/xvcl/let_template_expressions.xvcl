@@ -1,0 +1,9 @@
+// Test: Template expressions in #let directives
+#const PREFIX STRING = "item"
+
+sub vcl_recv {
+    #for i in range(2)
+    #let {{PREFIX}}{{i}} STRING = "{{PREFIX}}-{{i}}";
+    set req.http.X-Item-{{i}} = var.{{PREFIX}}{{i}};
+    #endfor
+}

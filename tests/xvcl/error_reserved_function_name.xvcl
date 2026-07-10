@@ -1,0 +1,4 @@
+// ERROR: Function name 'vcl_custom' uses the reserved 'vcl_' prefix
+#def vcl_custom() -> STRING
+    return "value";
+#enddef

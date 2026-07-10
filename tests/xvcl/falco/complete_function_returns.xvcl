@@ -1,0 +1,45 @@
+// Falco test: Function return control flow and parameter token substitution
+
+backend F_origin {
+    .host = "origin.example.com";
+    .port = "443";
+    .connect_timeout = 5s;
+    .first_byte_timeout = 30s;
+    .between_bytes_timeout = 10s;
+}
+
+#def choose(value STRING) -> STRING
+    if (value == "first") {
+        return "value literal"; // parameter names in strings must remain literal
+    }
+    if (value == "long") {
+        return {"value literal"};
+    }
+    set req.http.value = value;
+    return regsub(value, ",", ";");
+#enddef
+
+#def split(value STRING) -> (STRING, STRING)
+    return regsub(value, ",", ";"), "value literal";
+#enddef
+
+#def normalize(value STRING) -> STRING
+    return regsub(
+        value,
+        ",",
+        ";"
+    );
+#enddef
+
+#inline call_twice(first, second)
+set req.http.X-One = choose(first);
+set req.http.X-Two = choose(second);
+#endinline
+
+sub vcl_recv {
+    #FASTLY recv
+    call_twice("first", "left,right")
+    set req.http.X-Inline-One = choose("first"); set req.http.X-Inline-Two = choose("left,right");
+    set req.backend = F_origin;
+    return(lookup);
+}

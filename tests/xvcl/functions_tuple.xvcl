@@ -2,8 +2,10 @@
 #def divmod(a INTEGER, b INTEGER) -> (INTEGER, INTEGER)
     declare local var.quotient INTEGER;
     declare local var.remainder INTEGER;
-    set var.quotient = a / b;
-    set var.remainder = a % b;
+    set var.quotient = a;
+    set var.quotient /= b;
+    set var.remainder = a;
+    set var.remainder %= b;
     return var.quotient, var.remainder;
 #enddef
 
@@ -33,7 +35,9 @@
     } else {
         set var.max = c;
     }
-    set var.sum = a + b + c;
+    set var.sum = a;
+    set var.sum += b;
+    set var.sum += c;
     return var.min, var.max, var.sum;
 #enddef
 

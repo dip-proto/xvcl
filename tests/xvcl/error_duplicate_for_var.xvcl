@@ -1,0 +1,4 @@
+// ERROR: Duplicate variable name in #for: 'item, item'
+#for item, item in [("first", "second")]
+set req.http.X-Item = "{{item}}";
+#endfor

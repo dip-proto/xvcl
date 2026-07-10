@@ -1,0 +1,20 @@
+// Falco test: Fastly concatenates repeated lifecycle subroutines
+
+backend F_origin {
+    .host = "origin.example.com";
+    .port = "443";
+    .connect_timeout = 5s;
+    .first_byte_timeout = 30s;
+    .between_bytes_timeout = 10s;
+}
+
+sub vcl_recv {
+    #FASTLY recv
+    set req.http.X-First = "1";
+}
+
+sub vcl_recv {
+    set req.http.X-Second = "1";
+    set req.backend = F_origin;
+    return(lookup);
+}

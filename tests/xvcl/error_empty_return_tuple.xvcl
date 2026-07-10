@@ -1,0 +1,4 @@
+// ERROR: Function 'empty' has an empty return tuple
+#def empty() -> ()
+    return "unused";
+#enddef

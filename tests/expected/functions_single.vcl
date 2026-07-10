@@ -40,10 +40,11 @@ sub add {
   declare local var.return_value INTEGER;
 
     declare local var.sum INTEGER;
-    set var.sum = var.a + var.b;
+    set var.sum = var.a;
+    set var.sum += var.b;
     set var.return_value = var.sum;
-
-  set req.http.X-Func-add-Return = std.itoa(var.return_value);
+    set req.http.X-Func-add-Return = std.itoa(var.return_value);
+    return;
 }
 
 // Function: concat
@@ -61,8 +62,8 @@ sub concat {
     declare local var.result STRING;
     set var.result = var.s1 + var.s2;
     set var.return_value = var.result;
-
-  set req.http.X-Func-concat-Return = var.return_value;
+    set req.http.X-Func-concat-Return = var.return_value;
+    return;
 }
 
 // Function: double_float
@@ -76,10 +77,11 @@ sub double_float {
   declare local var.return_value FLOAT;
 
     declare local var.result FLOAT;
-    set var.result = var.x * 2.0;
+    set var.result = var.x;
+    set var.result *= 2.0;
     set var.return_value = var.result;
-
-  set req.http.X-Func-double_float-Return = "" + var.return_value;
+    set req.http.X-Func-double_float-Return = "" + var.return_value;
+    return;
 }
 
 // Function: is_positive
@@ -99,10 +101,10 @@ sub is_positive {
         set var.result = false;
     }
     set var.return_value = var.result;
-
-  if (var.return_value) {
-    set req.http.X-Func-is_positive-Return = "true";
-  } else {
-    set req.http.X-Func-is_positive-Return = "false";
-  }
+    if (var.return_value) {
+      set req.http.X-Func-is_positive-Return = "true";
+    } else {
+      set req.http.X-Func-is_positive-Return = "false";
+    }
+    return;
 }

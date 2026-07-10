@@ -1,0 +1,21 @@
+// Falco test: Multiline native VCL keeps line-comment boundaries
+
+backend F_origin {
+    .host = "origin.example.com";
+    .port = "443";
+    .connect_timeout = 5s;
+    .first_byte_timeout = 30s;
+    .between_bytes_timeout = 10s;
+}
+
+sub vcl_recv {
+    #FASTLY recv
+    if (
+        req.method == "GET" // method is safe
+        && req.url.path == "/"
+    ) {
+        set req.http.X-Matched = "1";
+    }
+    set req.backend = F_origin;
+    return(lookup);
+}
