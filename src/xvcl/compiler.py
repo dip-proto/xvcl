@@ -4,7 +4,7 @@ xvcl - Extended VCL compiler with metaprogramming features
 
 Features:
 - #inline directive for zero-overhead text substitution macros
-- Automatic parenthesization to prevent operator precedence issues
+- Token-aware macro expansion that preserves VCL strings and comments
 - Macros work in any expression context (unlike functions)
 - #include directive for code reuse across files
 - #const directive for named constants
@@ -21,6 +21,7 @@ import json
 import os
 import re
 import sys
+import textwrap
 from dataclasses import dataclass, field
 from difflib import get_close_matches
 from typing import Any, Optional
@@ -196,6 +197,91 @@ class PreprocessorError(Exception):
         return "".join(parts)
 
 
+def _is_vcl_var_char(char: str) -> bool:
+    """Return whether a character can be part of a VCL variable token."""
+    return char.isalnum() or char in "_.:-"
+
+
+def _vcl_opaque_end(text: str, start: int) -> Optional[int]:
+    """Return the end of a VCL string or comment beginning at start, if any."""
+    if text.startswith("//", start) or text[start] == "#":
+        newline = text.find("\n", start)
+        return len(text) if newline == -1 else newline
+
+    if text.startswith("/*", start):
+        end = text.find("*/", start + 2)
+        return len(text) if end == -1 else end + 2
+
+    # VCL long strings use {"..."}, optionally with a heredoc identifier:
+    # {NAME"..."NAME}.
+    if text[start] == "{":
+        long_string = re.match(r'\{([A-Za-z]*)"', text[start:])
+        if long_string:
+            delimiter = f'"{long_string.group(1)}}}'
+            end = text.find(delimiter, start + long_string.end())
+            return len(text) if end == -1 else end + len(delimiter)
+
+    if text[start] in ('"', "'"):
+        quote = text[start]
+        end = start + 1
+        while end < len(text):
+            if text[end] == "\\" and end + 1 < len(text):
+                end += 2
+                continue
+            if text[end] == quote:
+                return end + 1
+            end += 1
+        return len(text)
+
+    return None
+
+
+def _mask_vcl_opaque(text: str) -> str:
+    """Mask VCL strings and comments with spaces while preserving offsets."""
+    masked = list(text)
+    i = 0
+    while i < len(text):
+        opaque_end = _vcl_opaque_end(text, i)
+        if opaque_end is None:
+            i += 1
+            continue
+        for pos in range(i, opaque_end):
+            if masked[pos] != "\n":
+                masked[pos] = " "
+        i = opaque_end
+    return "".join(masked)
+
+
+def _replace_vcl_identifier(text: str, identifier: str, replacement: str) -> str:
+    """Replace a bare VCL identifier without touching strings, comments, or variables."""
+    result = []
+    i = 0
+
+    while i < len(text):
+        # #let is an xvcl directive whose runtime initializer may reference a
+        # function parameter; a bare # otherwise starts a VCL line comment.
+        is_let_directive = text[i] == "#" and text.startswith("#let ", i)
+        opaque_end = None if is_let_directive else _vcl_opaque_end(text, i)
+        if opaque_end is not None:
+            result.append(text[i:opaque_end])
+            i = opaque_end
+            continue
+
+        if _is_vcl_var_char(text[i]):
+            end = i + 1
+            while end < len(text) and _is_vcl_var_char(text[end]):
+                end += 1
+            token = text[i:end]
+            result.append(replacement if token == identifier else token)
+            i = end
+            continue
+
+        result.append(text[i])
+        i += 1
+
+    return "".join(result)
+
+
 class Macro:
     """Represents an inline macro definition."""
 
@@ -218,17 +304,32 @@ class Macro:
         result = self.body
 
         # Replace each parameter with its argument
-        # Use word boundaries to avoid partial replacements
+        # Explicit {{param}} placeholders are compile-time Python expressions and
+        # may intentionally occur inside VCL strings. Ordinary parameters are VCL
+        # tokens, so strings, comments, and qualified variables stay opaque.
         for param, arg in zip(self.params, args):
-            # Only wrap argument in parentheses if it contains operators
-            # This avoids creating grouped expressions for simple values
-            if any(op in arg for op in ["+", "-", "*", "/", "%", "==", "!=", "<", ">", "&&", "||"]):
-                wrapped_arg = f"({arg})"
-            else:
-                wrapped_arg = arg
-            result = re.sub(rf"\b{re.escape(param)}\b", wrapped_arg, result)
+            template_parts = []
+            cursor = 0
+            while True:
+                start = result.find("{{", cursor)
+                if start == -1:
+                    template_parts.append(result[cursor:])
+                    break
+                end = XVCLCompiler._find_template_expression_end(result, start + 2)
+                if end is None:
+                    template_parts.append(result[cursor:])
+                    break
+                template_parts.append(result[cursor : start + 2])
+                expression = result[start + 2 : end]
+                template_parts.append(re.sub(rf"\b{re.escape(param)}\b", arg, expression))
+                template_parts.append("}}")
+                cursor = end + 2
+            result = "".join(template_parts)
+            result = _replace_vcl_identifier(result, param, arg)
 
-        # Don't wrap entire expression - let VCL handle operator precedence naturally
+        # Macro expansion is deliberately textual. VCL only permits grouped
+        # expressions in boolean contexts, so adding parentheses here can change
+        # valid STRING VCL into invalid output.
         return result
 
 
@@ -500,8 +601,9 @@ class XVCLCompiler:
         self.current_lines = template.split("\n")
 
         # Add to included files (using absolute path)
-        abs_path = os.path.abspath(filename) if os.path.exists(filename) else filename
+        abs_path = os.path.realpath(filename) if os.path.exists(filename) else filename
         self.included_files.add(abs_path)
+        self.include_stack = [abs_path] if os.path.exists(filename) else []
 
         lines = self.current_lines
 
@@ -557,7 +659,6 @@ class XVCLCompiler:
         Extract #const declarations and store them.
         Returns lines with const declarations removed.
         """
-        const_locations: dict[str, tuple[int, Any]] = {}  # name -> (line, value)
         result = []
         new_prov, has_prov = self._start_provenance_pass(lines)
         i = 0
@@ -568,7 +669,7 @@ class XVCLCompiler:
 
             if stripped.startswith("#const "):
                 try:
-                    self._extract_single_constant(stripped, const_locations, i)
+                    self._extract_single_constant(stripped)
                 except PreprocessorError as e:
                     if e.diagnostic:
                         self.diagnostics.append(e.diagnostic)
@@ -583,18 +684,13 @@ class XVCLCompiler:
         self._finish_provenance_pass(new_prov, has_prov)
         return result
 
-    def _extract_single_constant(
-        self,
-        stripped: str,
-        const_locations: dict[str, tuple[int, Any]],
-        line_idx: int,
-    ) -> None:
+    def _extract_single_constant(self, stripped: str) -> None:
         """Parse and register a single #const declaration. Raises PreprocessorError on failure."""
         # Parse: #const NAME TYPE = value
-        match = re.match(r"#const\s+(\w+)\s+(\w+)\s*=\s*(.+)", stripped)
+        match = re.match(r"#const\s+(\w+)\s+(\w+)\s*=\s*(.+)", stripped, flags=re.DOTALL)
         if not match:
             # Try without type: #const NAME = value (infer type)
-            match = re.match(r"#const\s+(\w+)\s*=\s*(.+)", stripped)
+            match = re.match(r"#const\s+(\w+)\s*=\s*(.+)", stripped, flags=re.DOTALL)
             if not match:
                 raise self.make_error(
                     f"Invalid #const syntax: {stripped}",
@@ -611,6 +707,13 @@ class XVCLCompiler:
             const_type = match.group(2)
             value_expr = match.group(3)
 
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
+            raise self.make_error(
+                f"Invalid constant name '{name}'",
+                rule="invalid-const-name",
+                help="constant names must start with a letter or underscore",
+            )
+
         # Evaluate the expression
         try:
             value = self._evaluate_expression(value_expr, {})
@@ -624,8 +727,14 @@ class XVCLCompiler:
         # Type checking if type was specified
         if const_type:
             self._validate_vcl_type(const_type, f"constant '{name}'")
+            if const_type not in self._CONST_TYPES:
+                raise self.make_error(
+                    f"Type '{const_type}' is not supported for constants",
+                    rule="unsupported-const-type",
+                    help=f"supported #const types: {', '.join(sorted(self._CONST_TYPES))}",
+                )
             expected_type = self._python_type_from_vcl(const_type)
-            if not isinstance(value, expected_type):
+            if type(value) is not expected_type:
                 raise self.make_error(
                     f"Constant '{name}' type mismatch: expected {const_type}, "
                     f"got {type(value).__name__}",
@@ -634,16 +743,19 @@ class XVCLCompiler:
                 )
 
         # Check for duplicate constants
-        if name in const_locations:
-            prev_line, prev_value = const_locations[name]
+        if name in self.constants:
+            prev_file, prev_line = self._const_locations.get(
+                name, (self.current_file, self.current_line)
+            )
             raise self.make_error(
                 f"Constant '{name}' is already defined",
                 rule="const-redefined",
-                notes=[f"previously defined as {prev_value!r} at {self.current_file}:{prev_line}"],
+                notes=[
+                    f"previously defined as {self.constants[name]!r} at {prev_file}:{prev_line}"
+                ],
                 help="rename this constant or remove the duplicate",
             )
 
-        const_locations[name] = (self.current_line, value)
         self._const_locations[name] = (self.current_file, self.current_line)
         self.constants[name] = value
         self.log_debug(f"Defined constant: {name} = {value}")
@@ -666,6 +778,7 @@ class XVCLCompiler:
 
     # Types that xvcl's function bridge can convert through STRING headers
     _BRIDGE_TYPES = frozenset({"STRING", "INTEGER", "FLOAT", "BOOL"})
+    _CONST_TYPES = frozenset({"STRING", "INTEGER", "FLOAT", "BOOL"})
 
     def _validate_vcl_type(self, type_name: str, context: str) -> None:
         """Validate that a type name is a valid VCL type.
@@ -926,6 +1039,13 @@ class XVCLCompiler:
                 name = match.group(1)
                 params_str = match.group(2).strip()
 
+                if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
+                    raise self.make_error(
+                        f"Invalid macro name '{name}'",
+                        rule="invalid-macro-name",
+                        help="macro names must start with a letter or underscore",
+                    )
+
                 # Check for duplicate macro names
                 if name in self.macros:
                     raise self.make_error(
@@ -940,15 +1060,31 @@ class XVCLCompiler:
                 if params_str:
                     params = [p.strip() for p in params_str.split(",")]
 
+                seen_params = set()
+                for param in params:
+                    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", param):
+                        raise self.make_error(
+                            f"Invalid parameter name '{param}' in macro '{name}'",
+                            rule="invalid-macro-param",
+                            help="parameter names must be VCL identifiers",
+                        )
+                    if param in seen_params:
+                        raise self.make_error(
+                            f"Macro '{name}' has duplicate parameter '{param}'",
+                            rule="duplicate-macro-param",
+                            help="give every macro parameter a unique name",
+                        )
+                    seen_params.add(param)
+
                 # Find matching #endinline
                 endinline_idx = self._find_matching_end(
                     lines, i, len(lines), "#inline", "#endinline"
                 )
 
-                # Extract macro body (should be a single expression)
+                # Extract macro body. Keep line boundaries: flattening with spaces
+                # would make a // comment swallow every following body line.
                 body_lines = lines[i + 1 : endinline_idx]
-                # Join all lines and strip whitespace
-                body = " ".join(line.strip() for line in body_lines).strip()
+                body = textwrap.dedent("\n".join(body_lines)).strip()
 
                 if not body:
                     raise self.make_error(
@@ -999,6 +1135,48 @@ class XVCLCompiler:
                     )
 
                 name, params, return_type = func_def
+
+                if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
+                    raise self.make_error(
+                        f"Invalid function name '{name}'",
+                        rule="invalid-function-name",
+                        help="function names must start with a letter or underscore",
+                    )
+                if name.startswith("vcl_"):
+                    raise self.make_error(
+                        f"Function name '{name}' uses the reserved 'vcl_' prefix",
+                        rule="reserved-function-name",
+                        help="choose a custom function name without the 'vcl_' prefix",
+                    )
+
+                seen_params = set()
+                for param_name, _ in params:
+                    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", param_name):
+                        raise self.make_error(
+                            f"Invalid parameter name '{param_name}' in function '{name}'",
+                            rule="invalid-function-param",
+                            help="parameter names must be VCL identifiers",
+                        )
+                    if param_name in seen_params:
+                        raise self.make_error(
+                            f"Function '{name}' has duplicate parameter '{param_name}'",
+                            rule="duplicate-function-param",
+                            help="give every function parameter a unique name",
+                        )
+                    if param_name == "return_value" or re.fullmatch(r"return_value\d+", param_name):
+                        raise self.make_error(
+                            f"Function parameter '{param_name}' conflicts with generated return storage",
+                            rule="reserved-function-param",
+                            help="rename the parameter",
+                        )
+                    seen_params.add(param_name)
+
+                if isinstance(return_type, list) and not return_type:
+                    raise self.make_error(
+                        f"Function '{name}' has an empty return tuple",
+                        rule="invalid-function-return",
+                        help="list at least one return type inside the parentheses",
+                    )
 
                 # Validate parameter types
                 for param_name, param_type in params:
@@ -1213,13 +1391,18 @@ class XVCLCompiler:
         self.output.append("")
 
         # Process function body
-        param_substituted_body = []
-        for line in func.body:
-            processed_line = line
-            for param_name, _ in func.params:
-                # Replace standalone parameter references
-                processed_line = re.sub(rf"\b{param_name}\b", f"var.{param_name}", processed_line)
-            param_substituted_body.append(processed_line)
+        processed_body = "\n".join(func.body)
+        for param_name, _ in func.params:
+            # Parameters in the xvcl syntax are bare identifiers, while the generated
+            # VCL locals use the var.* namespace. Work on the complete body so that
+            # multiline long strings and block comments remain opaque.
+            processed_body = _replace_vcl_identifier(
+                processed_body, param_name, f"var.{param_name}"
+            )
+        param_substituted_body = processed_body.split("\n")
+        param_substituted_body = self._join_multiline_function_calls(
+            param_substituted_body, track_provenance=False
+        )
 
         # Save current output and process body
         saved_output = self.output
@@ -1230,46 +1413,76 @@ class XVCLCompiler:
         body_output = self.output
         self.output = saved_output
 
+        value_return_pattern = re.compile(
+            r"^(?P<indent>\s*)return\s+(?P<expressions>.+?);"
+            r"(?P<trailing>\s*(?:(?://|#).*)?)$",
+            flags=re.DOTALL,
+        )
+        can_fall_through = True
+        for candidate in reversed(body_output):
+            if candidate.strip() and not candidate.lstrip().startswith(("//", "#")):
+                can_fall_through = value_return_pattern.match(candidate) is None
+                break
+
         # Post-process the body output to handle return statements
         for line in body_output:
             # Replace "return expr1, expr2;" with multiple assignments
-            if re.match(r"\s*return\s+", line):
+            return_match = value_return_pattern.match(line)
+            if return_match:
+                indent = return_match.group("indent")
+                expressions = return_match.group("expressions")
+                trailing = return_match.group("trailing")
                 if func.is_tuple_return():
                     # Parse: return expr1, expr2, expr3;
-                    return_match = re.search(r"\breturn\s+(.+);", line)
-                    if return_match:
-                        exprs_str = return_match.group(1)
-                        exprs = [e.strip() for e in exprs_str.split(",")]
+                    exprs = self._parse_macro_args(expressions)
 
-                        if len(exprs) != len(return_types):
-                            raise self.make_error(
-                                f"Function '{func.name}' expects {len(return_types)} return values, got {len(exprs)}",
-                                line_num=func.location.line if func.location else None,
-                                rule="return-expr-count",
-                                help=f"return statement must have exactly {len(return_types)} comma-separated expressions",
-                                notes=[f"return type is ({', '.join(return_types)})"],
+                    if len(exprs) != len(return_types):
+                        raise self.make_error(
+                            f"Function '{func.name}' expects {len(return_types)} return values, got {len(exprs)}",
+                            line_num=func.location.line if func.location else None,
+                            rule="return-expr-count",
+                            help=f"return statement must have exactly {len(return_types)} comma-separated expressions",
+                            notes=[f"return type is ({', '.join(return_types)})"],
+                        )
+
+                    for idx, expr in enumerate(exprs):
+                        self.output.append(f"{indent}set var.return_value{idx} = {expr};")
+                    for idx, ret_type in enumerate(return_types):
+                        local_var = f"var.return_value{idx}"
+                        return_global = func.get_return_global(idx)
+                        self.output.extend(
+                            self._to_global_conversion_lines(
+                                indent, return_global, local_var, ret_type
                             )
-
-                        match_indent = re.match(r"(\s*)", line)
-                        indent = match_indent.group(1) if match_indent else ""
-                        for idx, expr in enumerate(exprs):
-                            self.output.append(f"{indent}set var.return_value{idx} = {expr};")
-                        continue
+                        )
                 else:
                     # Single return
-                    line = re.sub(r"\breturn\s+(.+);", r"set var.return_value = \1;", line)
+                    self.output.append(f"{indent}set var.return_value = {expressions};")
+                    return_global = func.get_return_global()
+                    self.output.extend(
+                        self._to_global_conversion_lines(
+                            indent, return_global, "var.return_value", return_types[0]
+                        )
+                    )
+
+                # This is a VOID bridge subroutine, so a bare return transfers control
+                # back to the generated call site without terminating the lifecycle sub.
+                self.output.append(f"{indent}return;{trailing}")
+                continue
 
             self.output.append(line)
 
-        # Write return value(s) to global(s)
-        self.output.append("")
-        if func.is_tuple_return():
-            for idx, ret_type in enumerate(return_types):
-                return_global = func.get_return_global(idx)
-                self._write_return_conversion(return_global, f"var.return_value{idx}", ret_type)
-        else:
-            return_global = func.get_return_global()
-            self._write_return_conversion(return_global, "var.return_value", return_types[0])
+        # A function whose last statement is not a value return can fall off the end.
+        # Preserve the previous default-value behavior for that path.
+        if can_fall_through:
+            self.output.append("")
+            if func.is_tuple_return():
+                for idx, ret_type in enumerate(return_types):
+                    return_global = func.get_return_global(idx)
+                    self._write_return_conversion(return_global, f"var.return_value{idx}", ret_type)
+            else:
+                return_global = func.get_return_global()
+                self._write_return_conversion(return_global, "var.return_value", return_types[0])
 
         self.output.append("}")
         self.output.append("")
@@ -1339,7 +1552,7 @@ class XVCLCompiler:
             # Handle #let (declare + initialize)
             elif stripped.startswith("#let "):
                 self.log_debug(f"Processing #let at line {self.current_line}", indent=1)
-                self._process_let(line)
+                self._process_let(line, context)
                 i += 1
 
             # Skip control flow keywords
@@ -1352,9 +1565,14 @@ class XVCLCompiler:
                 processed_line = self._substitute_expressions(processed_line, context)
                 self.output.append(processed_line)
                 # Track VCL declarations for duplicate detection
-                m = self._VCL_DECL_PATTERN.match(processed_line)
-                if m:
-                    decl_name = m.group(1)
+                for generated_line in processed_line.splitlines():
+                    m = self._VCL_DECL_PATTERN.match(generated_line)
+                    if not m:
+                        continue
+                    decl_kind = m.group(1)
+                    decl_name = m.group(2)
+                    if decl_kind == "sub" and decl_name in self._CONCATENABLE_VCL_SUBROUTINES:
+                        continue
                     # Resolve provenance for accurate file/line
                     prov = self._resolve_provenance(i + 1)
                     if decl_name in self._declared_names:
@@ -1380,15 +1598,19 @@ class XVCLCompiler:
 
         return i
 
-    def _process_let(self, line: str) -> None:
+    def _process_let(self, line: str, context: dict[str, Any]) -> None:
         """
         Process #let directive (declare + initialize).
         Format: #let name TYPE = expression;
         Generates: declare local var.name TYPE;
                    set var.name = expression;
         """
+        # Template expressions can appear in the variable name or initializer,
+        # just as they can on ordinary VCL lines.
+        line = self._substitute_expressions(line, context)
+
         # Match: #let name TYPE = expression;
-        match = re.match(r"(\s*)#let\s+(\w+)\s+(\w+)\s*=\s*(.+);", line)
+        match = re.match(r"(\s*)#let\s+(\w+)\s+(\w+)\s*=\s*(.+);", line, flags=re.DOTALL)
         if not match:
             raise self.make_error(
                 f"Invalid #let syntax: {line.strip()}",
@@ -1401,6 +1623,13 @@ class XVCLCompiler:
         var_name = match.group(2)
         var_type = match.group(3)
         expression = match.group(4)
+
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", var_name):
+            raise self.make_error(
+                f"Invalid #let variable name '{var_name}'",
+                rule="invalid-let-name",
+                help="variable names must start with a letter or underscore",
+            )
 
         # Validate the type
         self._validate_vcl_type(var_type, f"variable '{var_name}' in #let")
@@ -1503,42 +1732,38 @@ class XVCLCompiler:
                 bracket_depth += delta_bracket
                 i += 1
 
-            leading_ws = len(line) - len(line.lstrip())
-            indent = line[:leading_ws]
-            joined_parts = []
-            for part in accumulated:
-                part_stripped = part.strip()
-                if part_stripped:
-                    joined_parts.append(part_stripped)
-            joined = " ".join(joined_parts)
-            result.append(indent + joined)
+            result.append("\n".join(accumulated))
             if has_prov:
                 new_prov.append(self._merged_provenance(first_line_idx, i - 1))
 
         self._finish_provenance_pass(new_prov, has_prov)
         return result
 
-    def _join_multiline_function_calls(self, lines: list[str]) -> list[str]:
+    def _join_multiline_function_calls(
+        self, lines: list[str], *, track_provenance: bool = True
+    ) -> list[str]:
         """
         Join multi-line function calls into single lines.
         Also updates self._line_provenance.
         """
         result = []
-        new_prov, has_prov = self._start_provenance_pass(lines)
+        new_prov, has_prov = self._start_provenance_pass(lines) if track_provenance else ([], False)
+        masked_lines = _mask_vcl_opaque("\n".join(lines)).split("\n")
         i = 0
 
         while i < len(lines):
             line = lines[i]
+            masked_line = masked_lines[i]
 
             # Check if this line contains an opening parenthesis
-            if "(" not in line:
+            if "(" not in masked_line:
                 result.append(line)
                 self._keep_line_provenance(new_prov, has_prov, i)
                 i += 1
                 continue
 
             # Count parentheses (ignoring those in strings) to see if they balance
-            paren_depth = self._count_unquoted_parens(line)
+            paren_depth = self._count_unquoted_parens(masked_line)
 
             if paren_depth == 0:
                 # Balanced on this line, no joining needed
@@ -1555,21 +1780,12 @@ class XVCLCompiler:
             while i < len(lines) and paren_depth > 0:
                 next_line = lines[i]
                 accumulated.append(next_line)
-                paren_depth += self._count_unquoted_parens(next_line)
+                paren_depth += self._count_unquoted_parens(masked_lines[i])
                 i += 1
 
-            # Join the accumulated lines
-            leading_ws = len(line) - len(line.lstrip())
-            indent = line[:leading_ws]
-
-            joined_parts = []
-            for part in accumulated:
-                stripped = part.strip()
-                if stripped:
-                    joined_parts.append(stripped)
-
-            joined = " ".join(joined_parts)
-            result.append(indent + joined)
+            # Keep physical newlines. The call parser accepts whitespace, while
+            # flattening would make // comments swallow subsequent VCL tokens.
+            result.append("\n".join(accumulated))
             if has_prov:
                 new_prov.append(self._merged_provenance(first_line_idx, i - 1))
 
@@ -1609,64 +1825,16 @@ class XVCLCompiler:
 
         return pos - 1
 
-    # Known VCL built-in function names/prefixes that should not trigger
-    # "undefined function" errors when used in set assignments.
-    _VCL_BUILTINS = frozenset(
-        {
-            # String functions
-            "regsub",
-            "regsuball",
-            "strlen",
-            "strftime",
-            "substr",
-            # Conversion / utility (dotted-prefix modules)
-            "std",
-            "digest",
-            "uuid",
-            "accept",
-            "boltsort",
-            "header",
-            "querystring",
-            "table",
-            "ratelimit",
-            "subfield",
-            "setcookie",
-            "cookie",
-            "synthbackend",
-            "fastly",
-            "regextract",
-            # Math
-            "math",
-            "randomint",
-            "randomstr",
-            "crc32",
-            # Misc
-            "if",
-            "now",
-            "time",
-            "urlencode",
-            "urldecode",
-        }
-    )
-
-    def _is_vcl_builtin(self, name: str) -> bool:
-        """Check if a function name is a known VCL builtin (should not be flagged as undefined)."""
-        # Check direct match
-        if name in self._VCL_BUILTINS:
-            return True
-        # Check dotted prefix (std.tolower -> std)
-        prefix = name.split(".")[0] if "." in name else ""
-        return prefix in self._VCL_BUILTINS
-
     def _parse_set_function_call(
         self, line: str
-    ) -> Optional[tuple[str, list[str], str, list[str], str]]:
+    ) -> Optional[tuple[str, str, list[str], str, list[str], str]]:
         """
         Parse a line of the form:
             <prefix>set a, b = func(arg1, arg2);
-        Returns (prefix, result_vars, func_name, args, suffix) or None.
+        Returns (before, indent, result_vars, func_name, args, suffix) or None.
         """
-        for match in re.finditer(r"\bset\s+", line):
+        masked_line = _mask_vcl_opaque(line)
+        for match in re.finditer(r"\bset\s+", masked_line):
             prefix = line[: match.start()]
             rest = line[match.end() :]
 
@@ -1685,6 +1853,8 @@ class XVCLCompiler:
                 continue
 
             func_name = func_match.group(1)
+            if func_name not in self.functions:
+                continue
             open_paren_index = func_match.end() - 1
             close_paren_index = self._find_matching_paren(rhs, open_paren_index)
             if close_paren_index is None:
@@ -1708,38 +1878,29 @@ class XVCLCompiler:
             if args_str.strip():
                 args = self._parse_macro_args(args_str)
 
-            return prefix, result_vars, func_name, args, suffix
+            physical_prefix = prefix.rsplit("\n", 1)[-1]
+            indent_match = re.match(r"\s*", physical_prefix)
+            indent = indent_match.group(0) if indent_match else ""
+            return prefix, indent, result_vars, func_name, args, suffix
 
         return None
 
     def _process_function_calls(self, line: str) -> str:
         """Replace function calls with VCL subroutine calls using globals."""
         # First, expand any macros in the line (NEW in v2.4)
-        line = self._expand_macros(line)
+        expanded_line = self._expand_macros(line)
+        if "\n" in expanded_line and "\n" not in line:
+            return "\n".join(
+                self._process_function_calls(physical_line)
+                for physical_line in expanded_line.split("\n")
+            )
+        line = expanded_line
 
         parsed = self._parse_set_function_call(line)
         if not parsed:
             return line
 
-        prefix, result_vars, func_name, args, suffix = parsed
-
-        if func_name not in self.functions:
-            # Check if this looks like an xvcl function call that's undefined
-            # (vs a VCL builtin like regsub, std.tolower, etc.)
-            if not self._is_vcl_builtin(func_name):
-                all_names = list(self.functions.keys()) + list(self.macros.keys())
-                suggestions = get_close_matches(func_name, all_names, n=3, cutoff=0.6)
-                raise self.make_error(
-                    f"Function '{func_name}' is not defined",
-                    rule="undefined-function",
-                    suggestions=suggestions,
-                    notes=[
-                        f"defined functions: {', '.join(sorted(self.functions.keys()))}"
-                        if self.functions
-                        else "no functions defined"
-                    ],
-                )
-            return line
+        before, indent, result_vars, func_name, args, suffix = parsed
 
         func = self.functions[func_name]
         self._used_functions.add(func_name)
@@ -1775,20 +1936,21 @@ class XVCLCompiler:
             result_lines = []
             for (param_name, param_type), arg in zip(func.params, args):
                 global_name = func.get_param_global(param_name)
-                result_lines.extend(self._param_to_global(prefix, global_name, arg, param_type))
+                result_lines.extend(self._param_to_global(indent, global_name, arg, param_type))
 
-            result_lines.append(f"{prefix}call {func_name};")
+            result_lines.append(f"{indent}call {func_name};")
 
             for idx, (result_var, ret_type) in enumerate(zip(result_vars, return_types)):
                 return_global = func.get_return_global(idx)
                 result_lines.extend(
-                    self._global_to_var(prefix, result_var, return_global, ret_type)
+                    self._global_to_var(indent, result_var, return_global, ret_type)
                 )
 
             if suffix:
                 result_lines[-1] = f"{result_lines[-1]}{suffix}"
 
-            return "\n".join(result_lines)
+            result_lines[0] = before + result_lines[0][len(indent) :]
+            return self._process_function_calls("\n".join(result_lines))
 
         # Single assignment
         if func.is_tuple_return():
@@ -1807,19 +1969,20 @@ class XVCLCompiler:
         result_lines = []
         for (param_name, param_type), arg in zip(func.params, args):
             global_name = func.get_param_global(param_name)
-            result_lines.extend(self._param_to_global(prefix, global_name, arg, param_type))
+            result_lines.extend(self._param_to_global(indent, global_name, arg, param_type))
 
-        result_lines.append(f"{prefix}call {func_name};")
+        result_lines.append(f"{indent}call {func_name};")
 
         return_global = func.get_return_global()
         result_lines.extend(
-            self._global_to_var(prefix, result_vars[0], return_global, return_types[0])
+            self._global_to_var(indent, result_vars[0], return_global, return_types[0])
         )
 
         if suffix:
             result_lines[-1] = f"{result_lines[-1]}{suffix}"
 
-        return "\n".join(result_lines)
+        result_lines[0] = before + result_lines[0][len(indent) :]
+        return self._process_function_calls("\n".join(result_lines))
 
     def _check_func_arg_count(self, func: Function, args: list[str]) -> None:
         """Raise if argument count doesn't match function parameter count."""
@@ -1834,32 +1997,35 @@ class XVCLCompiler:
 
     def _expand_macros(self, line: str) -> str:
         """Expand all macro calls in a line."""
-        # Keep expanding until no more macros found (handle nested macros)
-        max_iterations = 10  # Prevent infinite loops
-        iteration = 0
+        # Keep expanding until no macros remain. Repeated output proves a direct or
+        # mutual recursion; the cap also catches recursions whose output keeps growing.
+        seen = set()
+        for _ in range(100):
+            if line in seen:
+                raise self.make_error(
+                    "Recursive macro expansion detected",
+                    rule="macro-recursion",
+                    help="check for macros that expand to calls of themselves or each other",
+                )
+            seen.add(line)
 
-        while iteration < max_iterations:
-            new_line = self._expand_macros_once(line)
-            if new_line == line:
-                break  # No more macros to expand
-            line = new_line
-            iteration += 1
+            line, expanded = self._expand_macros_once(line)
+            if not expanded:
+                return line
 
-        if iteration >= max_iterations:
-            raise self.make_error(
-                "Too many macro expansion iterations (possible recursive macros)",
-                rule="macro-recursion",
-                help="check for macros that expand to calls of themselves or each other",
-            )
+        raise self.make_error(
+            "More than 100 macro expansions on one line (possible recursive macros)",
+            rule="macro-recursion",
+            help="check for macros that expand to calls of themselves or each other",
+        )
 
-        return line
-
-    def _expand_macros_once(self, line: str) -> str:
+    def _expand_macros_once(self, line: str) -> tuple[str, bool]:
         """Expand macros in a line once (one pass). Expand leftmost macro first."""
         # Find potential macro calls by looking for identifier followed by (
         pattern = r"\b(\w+)\s*\("
 
-        for match in re.finditer(pattern, line):
+        masked_line = _mask_vcl_opaque(line)
+        for match in re.finditer(pattern, masked_line):
             macro_name = match.group(1)
 
             # Check if this is a macro
@@ -1918,12 +2084,16 @@ class XVCLCompiler:
                     notes=[f"defined at {macro.location}" if macro.location else ""],
                 )
 
+            if "\n" in expanded and not line[: match.start()].strip():
+                indent = line[: match.start()]
+                expanded = expanded.replace("\n", f"\n{indent}")
+
             # Build result with the macro replaced
             result = line[: match.start()] + expanded + line[pos:]
-            return result
+            return result, True
 
         # No macros found
-        return line
+        return line, False
 
     def _parse_macro_args(self, args_str: str) -> list[str]:
         """Parse macro arguments, handling nested parentheses and strings."""
@@ -1984,7 +2154,20 @@ class XVCLCompiler:
         return self._from_global_conversion_lines(prefix, result_var, return_global, ret_type)
 
     _VCL_DECL_PATTERN = re.compile(
-        r"^\s*(?:backend|sub|table|acl|director|penaltybox|ratecounter)\s+([\w.-]+)"
+        r"^\s*(backend|sub|table|acl|director|penaltybox|ratecounter)\s+([\w.-]+)"
+    )
+    _CONCATENABLE_VCL_SUBROUTINES = frozenset(
+        {
+            "vcl_recv",
+            "vcl_hash",
+            "vcl_hit",
+            "vcl_miss",
+            "vcl_pass",
+            "vcl_fetch",
+            "vcl_error",
+            "vcl_deliver",
+            "vcl_log",
+        }
     )
 
     def _process_for_loop(
@@ -1993,7 +2176,7 @@ class XVCLCompiler:
         """Process a #for loop with optional tuple unpacking."""
         line = lines[start].strip()
 
-        match = re.match(r"#for\s+(\w+(?:\s*,\s*\w+)*)\s+in\s+(.+)", line)
+        match = re.match(r"#for\s+(\w+(?:\s*,\s*\w+)*)\s+in\s+(.+)", line, flags=re.DOTALL)
         if not match:
             raise self.make_error(
                 f"Invalid #for syntax: {line}",
@@ -2008,12 +2191,18 @@ class XVCLCompiler:
         var_names = [v.strip() for v in vars_str.split(",")] if "," in vars_str else [vars_str]
 
         for var_name in var_names:
-            if not re.match(r"^\w+$", var_name):
+            if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", var_name):
                 raise self.make_error(
                     f"Invalid variable name in #for: '{var_name}'",
                     rule="invalid-for-var",
                     help="variable names must contain only letters, digits, and underscores",
                 )
+        if len(set(var_names)) != len(var_names):
+            raise self.make_error(
+                f"Duplicate variable name in #for: '{vars_str}'",
+                rule="duplicate-for-var",
+                help="give every tuple-unpacking variable a unique name",
+            )
 
         try:
             iterable = self._evaluate_expression(iterable_expr, context)
@@ -2025,7 +2214,15 @@ class XVCLCompiler:
 
         loop_end = self._find_matching_end(lines, start, end, "#for", "#endfor")
 
-        iterable = list(iterable)
+        try:
+            iterable = list(iterable)
+        except TypeError:
+            raise self.make_error(
+                f"Loop expression '{iterable_expr}' is not iterable",
+                rule="for-not-iterable",
+                help="use a list, tuple, range(), or another iterable value",
+                notes=[f"got {type(iterable).__name__}: {iterable!r}"],
+            )
         self.log_debug(f"Loop iterating {len(iterable)} times", indent=2)
 
         for idx, value in enumerate(iterable):
@@ -2079,7 +2276,7 @@ class XVCLCompiler:
         """Process a #if conditional."""
         line = lines[start].strip()
 
-        match = re.match(r"#if\s+(.+)", line)
+        match = re.match(r"#if\s+(.+)", line, flags=re.DOTALL)
         if not match:
             raise self.make_error(
                 f"Invalid #if syntax: {line}",
@@ -2151,9 +2348,25 @@ class XVCLCompiler:
 
     def _substitute_expressions(self, line: str, context: dict[str, Any]) -> str:
         """Substitute {{expression}} in a line."""
+        result = []
+        cursor = 0
 
-        def replace_expr(match):
-            expr = match.group(1)
+        while True:
+            start = line.find("{{", cursor)
+            if start == -1:
+                result.append(line[cursor:])
+                break
+
+            result.append(line[cursor:start])
+            end = self._find_template_expression_end(line, start + 2)
+            if end is None:
+                raise self.make_error(
+                    "No matching '}}' for template expression",
+                    rule="unclosed-template-expression",
+                    help="add '}}' after the compile-time expression",
+                )
+
+            expr = line[start + 2 : end]
             try:
                 value = self._evaluate_expression(expr, context)
             except Exception as e:
@@ -2162,10 +2375,51 @@ class XVCLCompiler:
                     rule="expr-eval-error",
                 )
             if isinstance(value, bool):
-                return "true" if value else "false"
-            return str(value)
+                result.append("true" if value else "false")
+            else:
+                result.append(str(value))
+            cursor = end + 2
 
-        return re.sub(r"\{\{(.+?)\}\}", replace_expr, line)
+        return "".join(result)
+
+    @staticmethod
+    def _find_template_expression_end(text: str, start: int) -> Optional[int]:
+        """Find an outer }} while ignoring Python strings and nested delimiters."""
+        delimiter_stack = []
+        matching_open = {")": "(", "]": "[", "}": "{"}
+        i = start
+
+        while i < len(text):
+            if text[i] in ('"', "'"):
+                quote = text[i]
+                triple = text.startswith(quote * 3, i)
+                delimiter = quote * (3 if triple else 1)
+                i += len(delimiter)
+                while i < len(text):
+                    if text[i] == "\\" and i + 1 < len(text):
+                        i += 2
+                        continue
+                    if text.startswith(delimiter, i):
+                        i += len(delimiter)
+                        break
+                    i += 1
+                continue
+
+            char = text[i]
+            if char in "([{":
+                delimiter_stack.append(char)
+                i += 1
+                continue
+            if char in ")]}":
+                if delimiter_stack and delimiter_stack[-1] == matching_open[char]:
+                    delimiter_stack.pop()
+                    i += 1
+                    continue
+                if char == "}" and not delimiter_stack and text.startswith("}}", i):
+                    return i
+            i += 1
+
+        return None
 
     def _evaluate_expression(self, expr: str, context: dict[str, Any]) -> Any:
         """Safely evaluate an expression in the given context."""
@@ -2268,7 +2522,7 @@ Example:
     if args.output:
         output_path = args.output
     elif args.input.endswith(".xvcl"):
-        output_path = args.input.replace(".xvcl", ".vcl")
+        output_path = os.path.splitext(args.input)[0] + ".vcl"
     else:
         output_path = args.input + ".vcl"
 
