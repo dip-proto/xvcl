@@ -2442,9 +2442,14 @@ class XVCLCompiler:
                 "false": False,
             }
 
-            # Merge constants into context
-            eval_env = {**safe_globals, **self.constants, **context}
-            result = eval(expr, {"__builtins__": {}}, eval_env)
+            # Merge constants into context.
+            # The environment is passed as eval's *globals*: comprehension and
+            # lambda bodies get their own scope and resolve free names through
+            # globals, so names placed only in locals would be invisible there.
+            # __builtins__ goes last so no constant or loop variable can
+            # shadow it and restore access to Python builtins.
+            eval_env = {**safe_globals, **self.constants, **context, "__builtins__": {}}
+            result = eval(expr, eval_env)
 
             # Track which constants were referenced (fast pre-filter before regex)
             for const_name in self.constants:
