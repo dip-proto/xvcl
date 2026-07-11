@@ -1,0 +1,13 @@
+// Test: List comprehensions in constants can reference other constants.
+// Comprehension bodies run in their own scope and resolve free names through
+// eval's globals, so constants must be visible there, not only in locals.
+#const N = 3
+#const BASE = 10
+#const MASK = 7
+#const VALUES = [(BASE * i) & MASK for i in range(N)]
+#const JOINED = "".join([str(v) for v in VALUES])
+
+#for i in range(N)
+set req.http.X-Value-{{i}} = "{{VALUES[i]}}";
+#endfor
+set req.http.X-Joined = "{{JOINED}}";
