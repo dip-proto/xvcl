@@ -1565,6 +1565,9 @@ class XVCLCompiler:
                     else:
                         params.append((param, "STRING"))
 
+            # A one-element tuple is a single value, and is called like one.
+            if len(return_types) == 1:
+                return (name, params, return_types[0])
             return (name, params, return_types)  # List for tuple return
 
         # Try single return: #def name(params) -> TYPE

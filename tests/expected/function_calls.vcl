@@ -8,6 +8,7 @@
 
 
 
+
 sub vcl_hash {
   set req.http.X-Func-echo-s = req.url;
   call echo;
@@ -65,6 +66,9 @@ sub vcl_recv {
   call join;
   set var.out = req.http.X-Func-join-Return;
   unset req.http.X-Func-join-Return;
+  call first;
+  set var.out = req.http.X-Func-first-Return;
+  unset req.http.X-Func-first-Return;
   set req.http.X-Func-is_api-url = req.url;
   call is_api;
   set var.ok = (req.http.X-Func-is_api-Return == "true");
@@ -198,5 +202,16 @@ sub in_range {
   } else {
     set req.http.X-Func-in_range-Return = "false";
   }
+  return;
+}
+
+// Function: first
+//@recv, hash, hit, miss, pass, fetch, error, deliver, log
+sub first {
+
+  declare local var.return_value STRING;
+
+  set var.return_value = "only";
+  set req.http.X-Func-first-Return = var.return_value;
   return;
 }

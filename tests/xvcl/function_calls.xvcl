@@ -28,6 +28,10 @@
   return false;
 #enddef
 
+#def first() -> (STRING)
+  return "only";
+#enddef
+
 #inline strlen(s)
 s
 #endinline
@@ -62,6 +66,7 @@ sub vcl_recv {
     req.url
   );
   set var.out = join("\", "{{ ["a", "b"][1] }}");
+  set var.out = first();
   set var.ok = is_api(req.url);
   set var.out = yes_no(var.ok);
   set var.ok = in_range({{ [10, 60][1] }});
