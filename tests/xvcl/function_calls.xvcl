@@ -14,6 +14,7 @@ s
 sub vcl_recv {
   declare local var.out STRING;
   set req.http.X-Test = echo("value");
+  set req.http.x-func-echo-return = echo("kept");
   set var.out = echo("a, b");
   set var.out = echo(":)");
   set var.out = echo(regsub(req.url.path, "/+", "/"));

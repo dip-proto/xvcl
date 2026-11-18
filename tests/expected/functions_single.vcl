@@ -8,17 +8,20 @@ sub vcl_recv {
     set req.http.X-Func-add_ints-b = std.itoa(10);
     call add_ints;
     set var.sum = std.atoi(req.http.X-Func-add_ints-Return);
+    unset req.http.X-Func-add_ints-Return;
 
     declare local var.str STRING;
     set req.http.X-Func-concat-s1 = "hello";
     set req.http.X-Func-concat-s2 = "world";
     call concat;
     set var.str = req.http.X-Func-concat-Return;
+    unset req.http.X-Func-concat-Return;
 
     declare local var.positive BOOL;
     set req.http.X-Func-is_positive-n = std.itoa(42);
     call is_positive;
     set var.positive = (req.http.X-Func-is_positive-Return == "true");
+    unset req.http.X-Func-is_positive-Return;
 }
 
 // Function: add_ints
@@ -29,7 +32,9 @@ sub add_ints {
   declare local var.b INTEGER;
 
   set var.a = std.atoi(req.http.X-Func-add_ints-a);
+  unset req.http.X-Func-add_ints-a;
   set var.b = std.atoi(req.http.X-Func-add_ints-b);
+  unset req.http.X-Func-add_ints-b;
 
   declare local var.return_value INTEGER;
 
@@ -49,7 +54,9 @@ sub concat {
   declare local var.s2 STRING;
 
   set var.s1 = req.http.X-Func-concat-s1;
+  unset req.http.X-Func-concat-s1;
   set var.s2 = req.http.X-Func-concat-s2;
+  unset req.http.X-Func-concat-s2;
 
   declare local var.return_value STRING;
 
@@ -67,6 +74,7 @@ sub is_positive {
   declare local var.n INTEGER;
 
   set var.n = std.atoi(req.http.X-Func-is_positive-n);
+  unset req.http.X-Func-is_positive-n;
 
   declare local var.return_value BOOL;
 

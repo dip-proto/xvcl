@@ -809,9 +809,11 @@ set req.http.X-Func-add_ints-a = std.itoa(5);
 set req.http.X-Func-add_ints-b = std.itoa(10);
 call add_ints;
 set var.result = std.atoi(req.http.X-Func-add_ints-Return);
+unset req.http.X-Func-add_ints-Return;
 ```
 
 xvcl generates the `sub add_ints { ... }` implementation and handles all type conversions automatically.
+These headers are removed right after they're read, so they never reach the origin.
 
 **Function features:**
 

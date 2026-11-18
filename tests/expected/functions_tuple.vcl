@@ -10,6 +10,8 @@ sub vcl_recv {
     call divmod;
     set var.q = std.atoi(req.http.X-Func-divmod-Return0);
     set var.r = std.atoi(req.http.X-Func-divmod-Return1);
+    unset req.http.X-Func-divmod-Return0;
+    unset req.http.X-Func-divmod-Return1;
 
     declare local var.key STRING;
     declare local var.value STRING;
@@ -17,6 +19,8 @@ sub vcl_recv {
     call parse_pair;
     set var.key = req.http.X-Func-parse_pair-Return0;
     set var.value = req.http.X-Func-parse_pair-Return1;
+    unset req.http.X-Func-parse_pair-Return0;
+    unset req.http.X-Func-parse_pair-Return1;
 
     declare local var.min INTEGER;
     declare local var.max INTEGER;
@@ -28,6 +32,9 @@ sub vcl_recv {
     set var.min = std.atoi(req.http.X-Func-get_stats-Return0);
     set var.max = std.atoi(req.http.X-Func-get_stats-Return1);
     set var.sum = std.atoi(req.http.X-Func-get_stats-Return2);
+    unset req.http.X-Func-get_stats-Return0;
+    unset req.http.X-Func-get_stats-Return1;
+    unset req.http.X-Func-get_stats-Return2;
 }
 
 // Function: divmod
@@ -38,7 +45,9 @@ sub divmod {
   declare local var.b INTEGER;
 
   set var.a = std.atoi(req.http.X-Func-divmod-a);
+  unset req.http.X-Func-divmod-a;
   set var.b = std.atoi(req.http.X-Func-divmod-b);
+  unset req.http.X-Func-divmod-b;
 
   declare local var.return_value0 INTEGER;
   declare local var.return_value1 INTEGER;
@@ -63,6 +72,7 @@ sub parse_pair {
   declare local var.s STRING;
 
   set var.s = req.http.X-Func-parse_pair-s;
+  unset req.http.X-Func-parse_pair-s;
 
   declare local var.return_value0 STRING;
   declare local var.return_value1 STRING;
@@ -87,8 +97,11 @@ sub get_stats {
   declare local var.c INTEGER;
 
   set var.a = std.atoi(req.http.X-Func-get_stats-a);
+  unset req.http.X-Func-get_stats-a;
   set var.b = std.atoi(req.http.X-Func-get_stats-b);
+  unset req.http.X-Func-get_stats-b;
   set var.c = std.atoi(req.http.X-Func-get_stats-c);
+  unset req.http.X-Func-get_stats-c;
 
   declare local var.return_value0 INTEGER;
   declare local var.return_value1 INTEGER;

@@ -1649,7 +1649,7 @@ class XVCLCompiler:
         if func.params:
             self.output.append("")
 
-        # Read parameters from globals with type conversion
+        # Request headers reach the origin, so each one is removed once it's read.
         for param_name, param_type in func.params:
             global_name = func.get_param_global(param_name)
             self.output.extend(
@@ -1657,6 +1657,7 @@ class XVCLCompiler:
                     "  ", f"var.{param_name}", global_name, param_type
                 )
             )
+            self.output.append(f"  unset {global_name};")
 
         if func.params:
             self.output.append("")
@@ -2187,6 +2188,14 @@ class XVCLCompiler:
                     self._global_to_var(indent, result_var, return_global, ret_type)
                 )
 
+            # Request headers reach the origin, so results are removed once read.
+            # The exception is a result stored back into its own header.
+            targets = {result_var.lower() for result_var in result_vars}
+            for idx in range(len(return_types)):
+                return_global = func.get_return_global(idx)
+                if return_global.lower() not in targets:
+                    result_lines.append(f"{indent}unset {return_global};")
+
             if suffix:
                 result_lines[-1] = f"{result_lines[-1]}{suffix}"
 
@@ -2218,6 +2227,8 @@ class XVCLCompiler:
         result_lines.extend(
             self._global_to_var(indent, result_vars[0], return_global, return_types[0])
         )
+        if return_global.lower() != result_vars[0].lower():
+            result_lines.append(f"{indent}unset {return_global};")
 
         if suffix:
             result_lines[-1] = f"{result_lines[-1]}{suffix}"

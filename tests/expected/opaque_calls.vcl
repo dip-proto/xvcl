@@ -21,6 +21,7 @@ sub vcl_recv {
     set req.http.X-Func-echo-value = "result";
     call echo;
     set var.output = req.http.X-Func-echo-Return;
+    unset req.http.X-Func-echo-Return;
 }
 
 // Function: echo
@@ -30,6 +31,7 @@ sub echo {
   declare local var.value STRING;
 
   set var.value = req.http.X-Func-echo-value;
+  unset req.http.X-Func-echo-value;
 
   declare local var.return_value STRING;
 
