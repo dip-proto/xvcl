@@ -33,6 +33,9 @@ sub retired {
   set req.http.X-New = "1";
 }
 
+// A table and a sub may share a name
+table retired { "a": "b" }
+
 sub vcl_error {
   // Heredoc delimiters may contain digits and underscores
   synthetic {EOF_1"<a href="url(home)">here</a>"EOF_1};

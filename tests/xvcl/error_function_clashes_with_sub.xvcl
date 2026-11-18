@@ -1,0 +1,11 @@
+// ERROR: Function 'normalize' clashes with a VCL subroutine of the same name
+// ERROR-AT: 6
+sub normalize {
+  set req.url = std.tolower(req.url);
+}
+#def normalize(path STRING) -> STRING
+  return std.tolower(path);
+#enddef
+sub vcl_recv {
+  set req.http.X-P = normalize(req.url);
+}

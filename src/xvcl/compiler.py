@@ -559,7 +559,10 @@ class XVCLCompiler:
         self.functions: dict[str, Function] = {}
         self.output: list[str] = []
         self.diagnostics: list[Diagnostic] = []  # Collected diagnostics
-        self._declared_names: dict[str, tuple[str, int]] = {}  # VCL name -> (file, line)
+        # (namespace, VCL name) -> (file, line).
+        # Each kind of declaration has its own namespace, but a director can also be used as a backend.
+        self._declared_names: dict[tuple[str, str], tuple[str, int]] = {}
+
         self._used_constants: set[str] = set()
         self._used_macros: set[str] = set()
         self._used_functions: set[str] = set()
@@ -1596,6 +1599,19 @@ class XVCLCompiler:
             self.output.append("")
 
         for func in self.functions.values():
+            if ("sub", func.name) in self._declared_names:
+                prev_file, prev_line = self._declared_names[("sub", func.name)]
+                self.diagnostics.append(
+                    Diagnostic(
+                        rule="duplicate-generated",
+                        severity="error",
+                        message=f"Function '{func.name}' clashes with a VCL subroutine of the same name",
+                        file=func.location.file,
+                        line=func.location.line,
+                        notes=[f"'{func.name}' is also declared at {prev_file}:{prev_line}"],
+                        help="rename the function or the VCL declaration",
+                    )
+                )
             self._generate_function_subroutine(func)
 
     def _generate_function_subroutine(self, func: Function) -> None:
@@ -1818,8 +1834,9 @@ class XVCLCompiler:
                         continue
                     # Resolve provenance for accurate file/line
                     prov = self._resolve_provenance(i + 1)
-                    if decl_name in self._declared_names:
-                        prev_file, prev_line = self._declared_names[decl_name]
+                    namespace = "backend" if decl_kind == "director" else decl_kind
+                    if (namespace, decl_name) in self._declared_names:
+                        prev_file, prev_line = self._declared_names[(namespace, decl_name)]
                         self.diagnostics.append(
                             Diagnostic(
                                 rule="duplicate-generated",
@@ -1836,7 +1853,7 @@ class XVCLCompiler:
                             )
                         )
                     else:
-                        self._declared_names[decl_name] = (prov.file, prov.line)
+                        self._declared_names[(namespace, decl_name)] = (prov.file, prov.line)
                 i += 1
 
         return i
