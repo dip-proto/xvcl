@@ -5,10 +5,10 @@
 
 sub vcl_recv {
     declare local var.sum INTEGER;
-    set req.http.X-Func-add-a = std.itoa(5);
-    set req.http.X-Func-add-b = std.itoa(10);
-    call add;
-    set var.sum = std.atoi(req.http.X-Func-add-Return);
+    set req.http.X-Func-add_ints-a = std.itoa(5);
+    set req.http.X-Func-add_ints-b = std.itoa(10);
+    call add_ints;
+    set var.sum = std.atoi(req.http.X-Func-add_ints-Return);
 
     declare local var.str STRING;
     set req.http.X-Func-concat-s1 = "hello";
@@ -27,15 +27,15 @@ sub vcl_recv {
     set var.positive = (req.http.X-Func-is_positive-Return == "true");
 }
 
-// Function: add
+// Function: add_ints
 //@recv, hash, hit, miss, pass, fetch, error, deliver, log
-sub add {
+sub add_ints {
 
   declare local var.a INTEGER;
   declare local var.b INTEGER;
 
-  set var.a = std.atoi(req.http.X-Func-add-a);
-  set var.b = std.atoi(req.http.X-Func-add-b);
+  set var.a = std.atoi(req.http.X-Func-add_ints-a);
+  set var.b = std.atoi(req.http.X-Func-add_ints-b);
 
   declare local var.return_value INTEGER;
 
@@ -43,7 +43,7 @@ sub add {
     set var.sum = var.a;
     set var.sum += var.b;
     set var.return_value = var.sum;
-    set req.http.X-Func-add-Return = std.itoa(var.return_value);
+    set req.http.X-Func-add_ints-Return = std.itoa(var.return_value);
     return;
 }
 

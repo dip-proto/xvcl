@@ -698,7 +698,7 @@ Define reusable functions with parameters and return values. Functions are compi
 **Example 1: Simple function**
 
 ```vcl
-#def add(a INTEGER, b INTEGER) -> INTEGER
+#def add_ints(a INTEGER, b INTEGER) -> INTEGER
   declare local var.sum INTEGER;
   set var.sum = a;
   set var.sum += b;
@@ -707,7 +707,7 @@ Define reusable functions with parameters and return values. Functions are compi
 
 sub vcl_recv {
   declare local var.result INTEGER;
-  set var.result = add(5, 10);
+  set var.result = add_ints(5, 10);
   set req.http.X-Sum = var.result;
 }
 ```
@@ -801,16 +801,16 @@ Functions are compiled into VCL subroutines using global headers for parameter p
 
 ```vcl
 // Your code:
-set var.result = add(5, 10);
+set var.result = add_ints(5, 10);
 
 // Becomes:
-set req.http.X-Func-add-a = std.itoa(5);
-set req.http.X-Func-add-b = std.itoa(10);
-call add;
-set var.result = std.atoi(req.http.X-Func-add-Return);
+set req.http.X-Func-add_ints-a = std.itoa(5);
+set req.http.X-Func-add_ints-b = std.itoa(10);
+call add_ints;
+set var.result = std.atoi(req.http.X-Func-add_ints-Return);
 ```
 
-xvcl generates the `sub add { ... }` implementation and handles all type conversions automatically.
+xvcl generates the `sub add_ints { ... }` implementation and handles all type conversions automatically.
 
 **Function features:**
 
@@ -818,6 +818,10 @@ xvcl generates the `sub add { ... }` implementation and handles all type convers
 - **Multiple returns:** Use tuple syntax to return multiple values
 - **Automatic conversions:** INTEGER/FLOAT/BOOL are converted to/from STRING automatically
 - **Scope annotations:** Generated subroutines work in all VCL scopes
+
+**Rules:**
+
+- A function can't be named after a VCL keyword or builtin function, like `add`, `log`, `if`, `now` or `regsub`.
 
 **Why use functions?**
 
@@ -1289,32 +1293,32 @@ if (is_asset(req.url.path)) {
 **Problem:** Function call doesn't get replaced.
 
 ```vcl
-#def add(a INTEGER, b INTEGER) -> INTEGER
+#def add_ints(a INTEGER, b INTEGER) -> INTEGER
   declare local var.sum INTEGER;
   set var.sum = a;
   set var.sum += b;
   return var.sum;
 #enddef
 
-set var.result = add(5, 10);
+set var.result = add_ints(5, 10);
 ```
 
 **Common causes:**
 
 1. **Missing semicolon:** Function calls must end with `;`
    ```vcl
-   set var.result = add(5, 10);  // ✓ Correct
-   set var.result = add(5, 10)   // ✗ Won't match
+   set var.result = add_ints(5, 10);  // ✓ Correct
+   set var.result = add_ints(5, 10)   // ✗ Won't match
    ```
 
 2. **Wrong number of arguments:**
    ```vcl
-   set var.result = add(5);      // ✗ Expects 2 args
+   set var.result = add_ints(5);      // ✗ Expects 2 args
    ```
 
 3. **Typo in function name:**
    ```vcl
-   set var.result = addr(5, 10); // ✗ Function 'addr' not defined
+   set var.result = add_int(5, 10);   // ✗ Function 'add_int' not defined
    ```
 
 ### Performance issues

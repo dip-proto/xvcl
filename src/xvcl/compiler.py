@@ -793,6 +793,109 @@ class XVCLCompiler:
         }
     )
 
+    # A function becomes "sub NAME", so NAME has to be a valid name for both Falco and Fastly.
+    # Falco reads these words as keywords.
+    _FALCO_KEYWORDS = frozenset(
+        {
+            "acl",
+            "add",
+            "backend",
+            "break",
+            "call",
+            "case",
+            "declare",
+            "default",
+            "director",
+            "else",
+            "elseif",
+            "elsif",
+            "error",
+            "esi",
+            "fallthrough",
+            "false",
+            "goto",
+            "if",
+            "import",
+            "include",
+            "log",
+            "penaltybox",
+            "pragma",
+            "ratecounter",
+            "remove",
+            "restart",
+            "return",
+            "set",
+            "sub",
+            "switch",
+            "synthetic",
+            "table",
+            "true",
+            "unset",
+        }
+    )
+
+    # Fastly refuses these as names: statements, return actions, and builtin functions without a namespace.
+    _FASTLY_RESERVED_NAMES = frozenset(
+        {
+            "add",
+            "break",
+            "call",
+            "case",
+            "client",
+            "cstr_escape",
+            "declare",
+            "deliver",
+            "deliver_stale",
+            "early_hints",
+            "else",
+            "elseif",
+            "elsif",
+            "esi",
+            "fallthrough",
+            "false",
+            "fetch",
+            "for",
+            "foreach",
+            "goto",
+            "hit_for_pass",
+            "http_status_matches",
+            "if",
+            "import",
+            "lookup",
+            "now",
+            "parse_time_delta",
+            "penaltybox",
+            "pipe",
+            "pragma",
+            "randombool",
+            "randombool_seeded",
+            "randomint",
+            "randomint_seeded",
+            "randomstr",
+            "ratecounter",
+            "regsub",
+            "regsuball",
+            "remove",
+            "return",
+            "set",
+            "strftime",
+            "sub",
+            "subfield",
+            "substr",
+            "switch",
+            "table",
+            "true",
+            "unset",
+            "upgrade",
+            "urldecode",
+            "urlencode",
+            "vcl",
+            "xml_escape",
+        }
+    )
+
+    _RESERVED_FUNCTION_NAMES = _FALCO_KEYWORDS | _FASTLY_RESERVED_NAMES
+
     # Types that xvcl's function bridge can convert through STRING headers
     _BRIDGE_TYPES = frozenset({"STRING", "INTEGER", "FLOAT", "BOOL"})
     _CONST_TYPES = frozenset({"STRING", "INTEGER", "FLOAT", "BOOL"})
@@ -1166,6 +1269,12 @@ class XVCLCompiler:
                         f"Function name '{name}' uses the reserved 'vcl_' prefix",
                         rule="reserved-function-name",
                         help="choose a custom function name without the 'vcl_' prefix",
+                    )
+                if name in self._RESERVED_FUNCTION_NAMES:
+                    raise self.make_error(
+                        f"Function name '{name}' is reserved in VCL",
+                        rule="reserved-function-name",
+                        help="rename the function: VCL keywords and builtin function names can't name a subroutine",
                     )
 
                 seen_params = set()

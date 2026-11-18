@@ -169,6 +169,8 @@ set var.clean = normalize("/PATH");
 set var.a, var.b = parse("input");
 ```
 
+A function can't be named after a VCL keyword or builtin function, like `add`, `log`, `if` or `regsub`.
+
 ## Supported Types
 
 - `INTEGER` - Whole numbers

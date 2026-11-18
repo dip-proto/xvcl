@@ -1,0 +1,5 @@
+// ERROR: Function name 'log' is reserved in VCL
+// ERROR-AT: 3
+#def log(a INTEGER, b INTEGER) -> INTEGER
+  return a;
+#enddef

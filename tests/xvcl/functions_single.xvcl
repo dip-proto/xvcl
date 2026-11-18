@@ -1,5 +1,5 @@
 // Test: Functions with single return value
-#def add(a INTEGER, b INTEGER) -> INTEGER
+#def add_ints(a INTEGER, b INTEGER) -> INTEGER
     declare local var.sum INTEGER;
     set var.sum = a;
     set var.sum += b;
@@ -31,7 +31,7 @@
 
 sub vcl_recv {
     declare local var.sum INTEGER;
-    set var.sum = add(5, 10);
+    set var.sum = add_ints(5, 10);
 
     declare local var.str STRING;
     set var.str = concat("hello", "world");

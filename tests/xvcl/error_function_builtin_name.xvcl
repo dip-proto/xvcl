@@ -1,0 +1,5 @@
+// ERROR: Function name 'regsub' is reserved in VCL
+// ERROR-AT: 3
+#def regsub(a STRING) -> STRING
+  return a;
+#enddef
