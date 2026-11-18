@@ -571,6 +571,8 @@ class XVCLCompiler:
         # Include tracking
         self.included_files: set[str] = set()  # Absolute paths of included files
         self.include_stack: list[str] = []  # Stack for cycle detection
+        self._conditional_includes: set[str] = set()  # Files first included under an #if
+        self._includes_with_output: set[str] = set()
 
         # Current source location for error reporting
         self.current_file: str = ""
@@ -750,14 +752,10 @@ class XVCLCompiler:
         self.log_debug("Pass 0: Joining multi-line directives")
         lines = self._join_multiline_directives(lines)
 
-        # First pass: extract constants
-        self.log_debug("Pass 1: Extracting constants")
-        lines = self._extract_constants(lines)
-        self._raise_if_errors()
-
-        # Second pass: process includes
-        self.log_debug("Pass 2: Processing includes")
+        # Passes 1 and 2 run together, in order, so a constant can use constants from files included before it.
+        self.log_debug("Passes 1-2: Extracting constants and processing includes")
         lines = self._process_includes(lines, filename)
+        self._raise_if_errors()
 
         # Third pass: extract inline macros (NEW in v2.4)
         self.log_debug("Pass 3: Extracting inline macros")
@@ -787,36 +785,6 @@ class XVCLCompiler:
 
         self.log_debug(f"Processing complete: {len(self.output)} lines generated")
         return "\n".join(self.output)
-
-    def _extract_constants(self, lines: list[str]) -> list[str]:
-        """
-        Extract #const declarations and store them.
-        Returns lines with const declarations removed.
-        """
-        result = []
-        new_prov, has_prov = self._start_provenance_pass(lines)
-        i = 0
-        while i < len(lines):
-            line = lines[i]
-            stripped = line.strip()
-            self.current_line = i + 1
-
-            if self._directive(line) == "#const":
-                try:
-                    self._extract_single_constant(stripped)
-                except PreprocessorError as e:
-                    if e.diagnostic:
-                        self.diagnostics.append(e.diagnostic)
-                    else:
-                        raise
-                i += 1
-            else:
-                result.append(line)
-                self._keep_line_provenance(new_prov, has_prov, i)
-                i += 1
-
-        self._finish_provenance_pass(new_prov, has_prov)
-        return result
 
     def _extract_single_constant(self, stripped: str) -> None:
         """Parse and register a single #const declaration. Raises PreprocessorError on failure."""
@@ -1069,24 +1037,46 @@ class XVCLCompiler:
         lines: list[str],
         current_file: str,
         include_chain: Optional[list[tuple[str, int]]] = None,
+        conditional: bool = False,
     ) -> list[str]:
         """
-        Process #include directives and insert included file contents.
-        Returns lines with includes expanded. Also updates self._line_provenance.
+        Process #include directives and insert included file contents, and
+        extract #const declarations along the way, in source order.
+        Returns the remaining lines.
+        Also updates self._line_provenance.
         """
         if include_chain is None:
             include_chain = []
 
         result = []
         result_provenance: list[_LineProv] = []
+        if_depth = 0
         i = 0
 
         while i < len(lines):
             line = lines[i]
             stripped = line.strip()
             self.current_line = i + 1
+            directive = self._directive(line)
+            if directive == "#if":
+                if_depth += 1
+            elif directive == "#endif":
+                if_depth -= 1
+            in_conditional = conditional or if_depth > 0
 
-            if self._directive(line) == "#include":
+            if directive == "#const":
+                # Errors are collected so that every bad constant gets reported.
+                try:
+                    self._extract_single_constant(stripped)
+                except PreprocessorError as e:
+                    if e.diagnostic:
+                        self.diagnostics.append(e.diagnostic)
+                    else:
+                        raise
+                i += 1
+                continue
+
+            if directive == "#include":
                 # Parse: #include "path/to/file.xvcl"
                 match = re.match(r'#include\s+["\'](.+?)["\']', stripped)
                 if not match:
@@ -1126,8 +1116,15 @@ class XVCLCompiler:
                         help="restructure includes to avoid the cycle",
                     )
 
-                # Check if already included (include-once semantics)
+                # Include-once runs before #if, so if the first copy sits in a branch that isn't taken, skipping this one would lose its VCL.
                 if abs_path in self.included_files:
+                    if abs_path in self._includes_with_output & self._conditional_includes:
+                        raise self.make_error(
+                            f"'{include_path}' is included again, but it was first included inside a conditional block",
+                            rule="conditional-reinclude",
+                            help="include it once, outside of #if blocks",
+                            notes=["each file is included only once, before #if is evaluated"],
+                        )
                     self.log_debug(f"Skipping already included file: {resolved_path}")
                     i += 1
                     continue
@@ -1171,8 +1168,13 @@ class XVCLCompiler:
 
                 # Recursively process includes in the included file
                 included_lines = self._join_multiline_directives(self.current_lines)
-                included_lines = self._extract_constants(included_lines)
-                included_lines = self._process_includes(included_lines, resolved_path, child_chain)
+                included_lines = self._process_includes(
+                    included_lines, resolved_path, child_chain, in_conditional
+                )
+                if self._has_vcl_output(included_lines):
+                    self._includes_with_output.add(abs_path)
+                if in_conditional:
+                    self._conditional_includes.add(abs_path)
 
                 # Capture the included file's provenance before restoring state
                 included_provenance = list(self._line_provenance)
@@ -1226,6 +1228,22 @@ class XVCLCompiler:
         # Update the compiler-wide provenance
         self._line_provenance = result_provenance
         return result
+
+    def _has_vcl_output(self, lines: list[str]) -> bool:
+        """Return whether lines produce VCL, beyond definitions, directives and comments."""
+        block_end = None
+        for line in lines:
+            directive = self._directive(line)
+            if block_end:
+                if directive == block_end:
+                    block_end = None
+            elif directive == "#inline":
+                block_end = "#endinline"
+            elif directive == "#def":
+                block_end = "#enddef"
+            elif directive == "#let" or _vcl_code_view(line).strip():
+                return True
+        return False
 
     def _resolve_include_path(self, include_path: str, current_file: str) -> Optional[str]:
         """Resolve include path by searching include paths."""

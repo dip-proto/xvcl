@@ -1,4 +1,5 @@
 // Test: Constants and template expressions
+#include "includes/constants.xvcl"
 #const NAME = "example"
 #const PORT = 443
 #const ENABLED = true
@@ -16,6 +17,10 @@ set req.http.X-Enabled = "yes";
 // Expression: arithmetic
 #const DOUBLE_PORT = PORT * 2
 set req.http.X-Port = "{{DOUBLE_PORT}}";
+
+// Constants from a file included earlier
+#const DOUBLE_TTL = SHARED_TTL * 2
+set req.http.X-TTL = "{{DOUBLE_TTL}}";
 
 // Multi-line dict
 #const PORTS = {

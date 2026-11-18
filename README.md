@@ -566,9 +566,10 @@ xvcl main.xvcl -o main.vcl -I ./vcl/includes
 
 **Features:**
 
-- **Include-once semantics:** Files are only included once even if referenced multiple times
+- **Include-once semantics:** Files are only included once, even if referenced multiple times.
+  Includes are handled before `#if`, so don't include a file that produces VCL in two branches; include it once, outside the `#if`
 - **Cycle detection:** Prevents circular includes
-- **Shared constants:** Constants defined in included files are available to the parent
+- **Shared constants:** Constants are read in order, included files too, so a constant can use any constant defined above it
 - **Compilation-wide names:** Redefining a constant in any included file is an error
 
 **Why use includes?**

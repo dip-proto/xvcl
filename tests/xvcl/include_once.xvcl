@@ -3,5 +3,17 @@
 #include "includes/constants.xvcl"
 #include "includes/constants.xvcl"
 
+// Repeating an include under #if is fine when the first one wasn't conditional
+#include "includes/backends.xvcl"
+#if true
+#include "includes/backends.xvcl"
+#endif
+
+// A file without VCL may be included again, even under #if
+#if true
+#include "includes/notes.xvcl"
+#endif
+#include "includes/notes.xvcl"
+
 // Should still only have one definition of constants
 set req.http.X-Port = "{{SHARED_PORT}}";

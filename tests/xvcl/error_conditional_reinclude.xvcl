@@ -1,0 +1,9 @@
+// ERROR: 'includes/backends.xvcl' is included again, but it was first included inside a conditional block
+// ERROR-AT: 8
+#const PRODUCTION = false
+
+#if PRODUCTION
+#include "includes/backends.xvcl"
+#else
+#include "includes/backends.xvcl"
+#endif
