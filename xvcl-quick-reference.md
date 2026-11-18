@@ -21,7 +21,8 @@ xvcl input.xvcl --debug
 
 ```vcl
 #const NAME TYPE = value
-#const NAME = value          // Type inferred from value
+// Type inferred from value:
+#const NAME = value
 
 // Examples:
 #const PORT INTEGER = 8080
@@ -29,10 +30,14 @@ xvcl input.xvcl --debug
 #const ENABLED BOOL = True
 #const VERSION FLOAT = 1.5
 
-// Type inference:
-#const BACKENDS = ["web1", "web2"]   // List
-#const TTL = 300                     // Integer
+// Type inference (a list, then an integer):
+#const BACKENDS = ["web1", "web2"]
+#const TTL = 300
+#const HALF_TTL = TTL // 2           # integer division, then a comment
 ```
+
+A `#const` value is Python, so `//` there divides.
+Use `#` for comments at the end of a `#const` line.
 
 ### Template Expressions
 
