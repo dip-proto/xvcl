@@ -1,0 +1,9 @@
+// ERROR: '#elif' after '#else' in the same #if block
+// ERROR-AT: 7
+#if true
+set req.http.A = "a";
+#else
+set req.http.A = "b";
+#elif false
+set req.http.A = "c";
+#endif

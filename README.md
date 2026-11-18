@@ -403,10 +403,14 @@ Conditionally include or exclude code based on compile-time conditions.
 ```vcl
 #if condition
   // Code when true
+#elif other_condition
+  // Code when this condition is true instead (optional, repeatable)
 #else
-  // Code when false (optional)
+  // Code when nothing above is true (optional)
 #endif
 ```
+
+Only the first true branch is compiled, and the conditions after it are skipped.
 
 **Example 1: Environment-specific configuration**
 

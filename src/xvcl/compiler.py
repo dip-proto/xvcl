@@ -1712,7 +1712,7 @@ class XVCLCompiler:
         while i < len(lines):
             line = lines[i]
 
-            if self._directive(line) not in ("#const", "#for", "#if", "#let"):
+            if self._directive(line) not in ("#const", "#elif", "#for", "#if", "#let"):
                 result.append(line)
                 self._keep_line_provenance(new_prov, has_prov, i)
                 i += 1
@@ -2287,33 +2287,11 @@ class XVCLCompiler:
         return loop_end + 1
 
     def _process_if(self, lines: list[str], start: int, end: int, context: dict[str, Any]) -> int:
-        """Process a #if conditional."""
-        line = lines[start].strip()
-
-        match = re.match(r"#if\s+(.+)", line, flags=re.DOTALL)
-        if not match:
-            raise self.make_error(
-                f"Invalid #if syntax: {line}",
-                rule="invalid-if",
-                help="expected '#if CONDITION'",
-                notes=["example: #if PRODUCTION", "example: #if len(BACKENDS) > 0"],
-            )
-
-        condition = match.group(1)
-
-        try:
-            result = self._evaluate_expression(condition, context)
-        except Exception as e:
-            raise self.make_error(
-                f"Error evaluating condition '{condition}': {e}",
-                rule="if-eval-error",
-            )
-
-        self.log_debug(f"Condition '{condition}' evaluated to {result}", indent=2)
-
-        else_idx = None
+        """Process a #if conditional with optional #elif and #else branches."""
         endif_idx = self._find_matching_end(lines, start, end, "#if", "#endif")
 
+        # Branch headers of this block: the #if line, every #elif, then #else.
+        headers = [start]
         depth = 0
         for i in range(start, endif_idx):
             directive = self._directive(lines[i])
@@ -2321,20 +2299,50 @@ class XVCLCompiler:
                 depth += 1
             elif directive == "#endif":
                 depth -= 1
-            elif directive == "#else" and depth == 1:
-                else_idx = i
-                break
+            elif depth == 1 and directive in ("#elif", "#else"):
+                if self._directive(lines[headers[-1]]) == "#else":
+                    self.current_line = i + 1
+                    raise self.make_error(
+                        f"'{directive}' after '#else' in the same #if block",
+                        rule="misplaced-else",
+                        help="#else must be the last branch before #endif",
+                    )
+                headers.append(i)
 
-        if result:
-            branch_end = else_idx if else_idx else endif_idx
-            self.log_debug("Taking if branch", indent=2)
-            self._process_lines(lines, start + 1, branch_end, context)
+        for branch, header_idx in enumerate(headers):
+            branch_end = headers[branch + 1] if branch + 1 < len(headers) else endif_idx
+            line = lines[header_idx].strip()
+            self.current_line = header_idx + 1
+
+            if self._directive(line) != "#else":
+                keyword = "#if" if branch == 0 else "#elif"
+                match = re.match(rf"{keyword}\s+(.+)", line, flags=re.DOTALL)
+                if not match:
+                    raise self.make_error(
+                        f"Invalid {keyword} syntax: {line}",
+                        rule="invalid-if",
+                        help=f"expected '{keyword} CONDITION'",
+                        notes=["example: #if PRODUCTION", "example: #if len(BACKENDS) > 0"],
+                    )
+
+                condition = match.group(1)
+                try:
+                    result = self._evaluate_expression(condition, context)
+                except Exception as e:
+                    raise self.make_error(
+                        f"Error evaluating condition '{condition}': {e}",
+                        rule="if-eval-error",
+                    )
+
+                self.log_debug(f"Condition '{condition}' evaluated to {result}", indent=2)
+                if not result:
+                    continue
+
+            self.log_debug(f"Taking branch at line {header_idx + 1}", indent=2)
+            self._process_lines(lines, header_idx + 1, branch_end, context)
+            break
         else:
-            if else_idx:
-                self.log_debug("Taking else branch", indent=2)
-                self._process_lines(lines, else_idx + 1, endif_idx, context)
-            else:
-                self.log_debug("Skipping if block", indent=2)
+            self.log_debug("Skipping if block", indent=2)
 
         return endif_idx + 1
 

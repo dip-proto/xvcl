@@ -15,11 +15,11 @@ set req.http.X-Env = "prod";
 set req.http.X-Env = "dev";
 #endif
 
-// If-elif-else
-#if VERSION == 1
-set req.http.X-Version = "v1";
-#elif VERSION == 2
+// If-elif-else: only the first true branch is kept
+#if VERSION == 2
 set req.http.X-Version = "v2";
+#elif VERSION > 1
+set req.http.X-Version = "newer";
 #else
 set req.http.X-Version = "unknown";
 #endif
@@ -30,6 +30,25 @@ set req.http.X-Version = "unknown";
 set req.http.X-Feature = "new";
 #endif
 #endif
+
+// Multi-line #elif, with a nested block in the branch that is taken
+#if VERSION == 1
+set req.http.X-Range = "one";
+#elif	VERSION in [
+  2,
+  3
+]
+#if VERSION == 2
+set req.http.X-Range = "two";
+#endif
+#endif
+
+// No branch taken
+#if VERSION == 8
+set req.http.X-Never = "8";
+#elif VERSION == 9
+set req.http.X-Never = "9";
+#endif // VERSION
 
 // A comment that starts with "#if" isn't a nested block
 #if DEBUG

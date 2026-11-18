@@ -79,13 +79,17 @@ set req.http.X-Hex = "{{hex(PORT)}}";
 ```vcl
 #if condition
   // code when true
+#elif other_condition
+  // code when this condition is true instead (optional, repeatable)
 #else
-  // code when false (optional)
+  // code when nothing above is true (optional)
 #endif
 
 // Examples:
 #if PRODUCTION
   set req.http.X-Env = "prod";
+#elif STAGING
+  set req.http.X-Env = "staging";
 #else
   set req.http.X-Env = "dev";
 #endif
