@@ -22,6 +22,13 @@ set req.http.X-Port = "{{DOUBLE_PORT}}";
 #const DOUBLE_TTL = SHARED_TTL * 2
 set req.http.X-TTL = "{{DOUBLE_TTL}}";
 
+// FLOAT literals never use exponent notation, but text in a string is left as Python writes it
+#const SAMPLE_RATE FLOAT = 0.00005
+#const HUGE FLOAT = 1e16
+set var.rate = {{SAMPLE_RATE}};
+set var.rate = {{HUGE}};
+set req.http.X-Rate = "{{SAMPLE_RATE}}";
+
 // Multi-line dict
 #const PORTS = {
   "web": 80,

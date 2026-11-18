@@ -18,6 +18,7 @@ Features:
 
 import argparse
 import json
+import math
 import os
 import re
 import sys
@@ -25,6 +26,7 @@ import textwrap
 from bisect import bisect_left, bisect_right
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
+from decimal import Decimal
 from difflib import get_close_matches
 from itertools import accumulate
 from typing import Any, Optional
@@ -419,6 +421,21 @@ def _replace_vcl_identifiers(text: str, replacements: dict[str, str]) -> str:
         if text[start:end] in replacements
     ]
     return _apply_edits(text, edits)
+
+
+def _format_template_value(value: Any, in_string: bool) -> str:
+    """Render a compile-time value as VCL source text."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, float) and math.isfinite(value) and not in_string:
+        # Falco rejects FLOAT literals like 5e-05, and the point keeps the literal a FLOAT.
+        text = repr(value)
+        if "e" in text:
+            text = format(Decimal(text), "f")
+            if "." not in text:
+                text += ".0"
+        return text
+    return str(value)
 
 
 class Macro:
@@ -2576,6 +2593,7 @@ class XVCLCompiler:
         """Substitute {{expression}} in a line."""
         result = []
         cursor = 0
+        string_spans: Optional[list[tuple[int, int]]] = None
 
         while True:
             start = line.find("{{", cursor)
@@ -2600,10 +2618,14 @@ class XVCLCompiler:
                     f"Error evaluating expression '{expr}': {e}",
                     rule="expr-eval-error",
                 )
-            if isinstance(value, bool):
-                result.append("true" if value else "false")
-            else:
-                result.append(str(value))
+            in_string = False
+            if isinstance(value, float):
+                if string_spans is None:
+                    string_spans = [
+                        (s, e) for kind, s, e in _vcl_segments(line) if kind == "string"
+                    ]
+                in_string = any(s < start < e for s, e in string_spans)
+            result.append(_format_template_value(value, in_string))
             cursor = end + 2
 
         return "".join(result)
