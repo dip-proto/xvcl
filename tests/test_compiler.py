@@ -56,15 +56,25 @@ def get_feature_tests() -> list[tuple[str, Path, Path]]:
     return tests
 
 
-def get_error_tests() -> list[tuple[str, Path, str]]:
-    """Find all error tests (xvcl files starting with 'error_')."""
+def get_error_tests() -> list[tuple[str, Path, list[str]]]:
+    """Find all error tests (xvcl files starting with 'error_').
+
+    Each leading '// ERROR:' line is text that must appear in the error output.
+    '// ERROR-AT: N' requires the error to point at line N of the test file.
+    """
     tests = []
     for xvcl_file in sorted(XVCL_DIR.glob("error_*.xvcl")):
-        content = xvcl_file.read_text()
-        first_line = content.split("\n")[0]
-        if first_line.startswith("// ERROR:"):
-            expected_error = first_line[9:].strip()
-            tests.append((xvcl_file.stem, xvcl_file, expected_error))
+        expected_errors = []
+        for line in xvcl_file.read_text().split("\n"):
+            if line.startswith("// ERROR:"):
+                expected_errors.append(line.removeprefix("// ERROR:").strip())
+            elif line.startswith("// ERROR-AT:"):
+                line_number = line.removeprefix("// ERROR-AT:").strip()
+                expected_errors.append(f"--> {xvcl_file}:{line_number}\n")
+            else:
+                break
+        if expected_errors:
+            tests.append((xvcl_file.stem, xvcl_file, expected_errors))
     return tests
 
 
@@ -94,16 +104,17 @@ class TestFeatures:
 class TestErrors:
     """Tests for xvcl error handling."""
 
-    @pytest.mark.parametrize("name,xvcl_file,expected_error", get_error_tests())
-    def test_error(self, name: str, xvcl_file: Path, expected_error: str):
+    @pytest.mark.parametrize("name,xvcl_file,expected_errors", get_error_tests())
+    def test_error(self, name: str, xvcl_file: Path, expected_errors: list[str]):
         """Test that xvcl produces expected error message."""
         output, stderr, returncode = compile_xvcl(xvcl_file)
 
         assert returncode != 0, f"Expected compilation to fail for {name}"
         stderr_clean = strip_ansi(stderr)
-        assert expected_error in stderr_clean, (
-            f"Expected error '{expected_error}' not found in:\n{stderr_clean}"
-        )
+        for expected_error in expected_errors:
+            assert expected_error in stderr_clean, (
+                f"Expected error '{expected_error}' not found in:\n{stderr_clean}"
+            )
 
 
 class TestCLI:
