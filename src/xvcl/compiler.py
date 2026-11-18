@@ -398,6 +398,9 @@ class Macro:
         self.params = params  # [param_name, ...]
         self.body = body  # Single expression (string)
         self.location = location
+        self._param_pattern = (
+            re.compile(r"\b(?:" + "|".join(map(re.escape, params)) + r")\b") if params else None
+        )
 
     def expand(self, args: list[str]) -> str:
         """Expand macro by substituting parameters with arguments."""
@@ -405,38 +408,27 @@ class Macro:
             raise ValueError(
                 f"Macro {self.name} expects {len(self.params)} arguments, got {len(args)}"
             )
+        if self._param_pattern is None:
+            return self.body
 
-        # Start with body
-        result = self.body
+        substitutions = dict(zip(self.params, args))
+        param_pattern = self._param_pattern
 
-        # Replace each parameter with its argument
-        # Explicit {{param}} placeholders are compile-time Python expressions and
-        # may intentionally occur inside VCL strings. Ordinary parameters are VCL
-        # tokens, so strings, comments, and qualified variables stay opaque.
-        for param, arg in zip(self.params, args):
-            template_parts = []
-            cursor = 0
-            while True:
-                start = result.find("{{", cursor)
-                if start == -1:
-                    template_parts.append(result[cursor:])
-                    break
-                end = _find_template_expression_end(result, start + 2)
-                if end is None:
-                    template_parts.append(result[cursor:])
-                    break
-                template_parts.append(result[cursor : start + 2])
-                expression = result[start + 2 : end]
-                template_parts.append(re.sub(rf"\b{re.escape(param)}\b", arg, expression))
-                template_parts.append("}}")
-                cursor = end + 2
-            result = "".join(template_parts)
-            result = _replace_vcl_identifiers(result, {param: arg})
+        # {{param}} placeholders are Python and also work inside VCL strings, while other parameters are VCL tokens.
+        # All replacements are found in the original body and applied together, so an argument is never rewritten again.
+        edits = []
+        start = self.body.find("{{")
+        while start != -1 and (end := _template_end(self.body, start)) is not None:
+            expression = self.body[start + 2 : end - 2]
+            replaced = param_pattern.sub(lambda m: substitutions[m.group(0)], expression)
+            edits.append((start + 2, end - 2, replaced))
+            start = self.body.find("{{", end)
+        for start, end in _vcl_token_spans(self.body):
+            if self.body[start:end] in substitutions:
+                edits.append((start, end, substitutions[self.body[start:end]]))
 
-        # Macro expansion is deliberately textual. VCL only permits grouped
-        # expressions in boolean contexts, so adding parentheses here can change
-        # valid STRING VCL into invalid output.
-        return result
+        # Expansion is textual on purpose: VCL only allows grouping in boolean expressions, so adding parentheses could break valid STRING VCL.
+        return _apply_edits(self.body, edits)
 
 
 class Function:

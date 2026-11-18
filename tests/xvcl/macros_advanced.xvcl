@@ -31,6 +31,25 @@ std.tolower(regsub(host, "^www\\.", ""))
 digest.hash_md5(url + "|" + host)
 #endinline
 
+// Parameters are replaced all at once, and only once
+#const PAIRS = [("k1", "v1")]
+
+#inline pair(a, b)
+"{{a}}={{b}}"
+#endinline
+
+#inline twice(n)
+{{n * 2}}
+#endinline
+
+#inline text_length(s)
+{{len(s)}}
+#endinline
+
+#inline default_ttl()
+{{60 * 60}}
+#endinline
+
 sub vcl_recv {
     // Test nested boolean macro calls
     if (both(is_get(req.method), is_asset(req.url.path))) {
@@ -47,4 +66,17 @@ sub vcl_recv {
     // Test VCL function macros
     set req.http.X-Normalized = normalize(req.http.Host);
     set req.http.X-Hash = hash_key(req.url, req.http.Host);
+
+    // An argument named like another parameter isn't replaced again
+    #for b, a in PAIRS
+    set req.http.X-Pair = pair(b, a);
+    #endfor
+    set req.http.X-Both = both(right, req.http.Host);
+
+    declare local var.n INTEGER;
+    #for n in range(1, 2)
+    set var.n = twice(n + 10);
+    #endfor
+    set var.n = text_length("a\\b");
+    set var.n = default_ttl();
 }
