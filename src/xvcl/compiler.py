@@ -1865,9 +1865,10 @@ class XVCLCompiler:
         Generates: declare local var.name TYPE;
                    set var.name = expression;
         """
-        # Template expressions can appear in the variable name or initializer,
-        # just as they can on ordinary VCL lines.
-        line = self._substitute_expressions(line, context)
+        # Macros expand before templates, as on ordinary lines, so placeholders from macro bodies get filled in.
+        # Only the part after "#let" is expanded, since the whole line would look like a comment.
+        indent, _, rest = line.partition("#let")
+        line = self._substitute_expressions(f"{indent}#let{self._expand_macros(rest)}", context)
 
         # Match: #let name TYPE = expression;
         match = re.match(r"(\s*)#let\s+(\w+)\s+(\w+)\s*=\s*(.+);", line, flags=re.DOTALL)

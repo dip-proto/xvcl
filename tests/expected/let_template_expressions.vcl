@@ -1,5 +1,6 @@
 // Test: Template expressions in #let directives
 
+
 sub vcl_recv {
     declare local var.item0 STRING;
     set var.item0 = "item-0";
@@ -7,4 +8,8 @@ sub vcl_recv {
     declare local var.item1 STRING;
     set var.item1 = "item-1";
     set req.http.X-Item-1 = var.item1;
+
+    // Macros expand first, so their placeholders are filled in too
+    declare local var.area INTEGER;
+    set var.area = 9;
 }
