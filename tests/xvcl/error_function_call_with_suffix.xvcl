@@ -1,0 +1,8 @@
+// ERROR: Function 'label' can only be called as 'set VAR = label(...);'
+// ERROR-AT: 7
+#def label(s STRING) -> STRING
+  return s;
+#enddef
+sub vcl_recv {
+  set req.http.X = label("x") "-post";
+}

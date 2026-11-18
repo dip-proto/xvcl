@@ -167,7 +167,13 @@ set req.http.X-Key = cache_key(req.url, req.http.Host);
 // Usage:
 set var.clean = normalize("/PATH");
 set var.a, var.b = parse("input");
+set req.hash += normalize(req.url);   // compound assignment works too
 ```
+
+A call has to be the whole right side of a `set`, a `#let`, or a `return` in another function.
+
+Calls can't be nested.
+Store the inner result in a variable first.
 
 Parameters and return values can be `STRING`, `INTEGER` or `BOOL`.
 `FLOAT` isn't supported, because it would be rounded to three decimals.

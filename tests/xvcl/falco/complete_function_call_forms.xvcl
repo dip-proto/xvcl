@@ -1,0 +1,87 @@
+// Falco test: call and return shapes, and bridge headers not reaching the origin
+
+backend F_origin {
+    .host = "origin.example.com";
+    .port = "443";
+    .connect_timeout = 5s;
+    .first_byte_timeout = 30s;
+    .between_bytes_timeout = 10s;
+}
+
+#def sign(msg STRING, key STRING) -> STRING
+    return digest.hmac_sha256(key, msg);
+#enddef
+
+#def lower(s STRING) -> STRING
+    return std.tolower(s);
+#enddef
+
+#def lower_twice(s STRING) -> STRING
+    return lower(s);
+#enddef
+
+#def is_api(url STRING) -> BOOL
+    if (url ~ "^/api/") { return true; }
+    return false; /* everything else */
+#enddef
+
+#def length(s STRING) -> INTEGER
+    return std.strlen(s);
+#enddef
+
+#def add_ints(a INTEGER, b INTEGER) -> INTEGER
+    declare local var.sum INTEGER;
+    set var.sum = a;
+    set var.sum += b;
+    return var.sum;
+#enddef
+
+#def double(n INTEGER) -> INTEGER
+    #let doubled INTEGER = add_ints(
+        n,
+        n
+    );
+    return var.doubled;
+#enddef
+
+#def size_class(choice STRING) -> STRING
+#for option in [
+    "small",
+    "large"
+]
+    if (choice == "{{option}}") {
+        return "{{option}}";
+    }
+#endfor
+    return "none";
+#enddef
+
+#def split_pair(s STRING) -> (STRING, STRING)
+    return regsub(s, ",.*$", ""), regsub(s, "^[^,]*,", "");
+#enddef
+
+sub vcl_recv {
+    #FASTLY recv
+    declare local var.api BOOL;
+    declare local var.left STRING;
+    declare local var.right STRING;
+    declare local var.total INTEGER;
+    set req.http.X-Sig = sign(req.url, "secret-key");
+    set req.http.X-Lower = lower_twice("ABC");
+    set var.api = is_api(req.url);
+    if (var.api) {
+        set req.http.X-Api = "yes";
+    } else {
+        set req.http.X-Api = "no";
+    }
+    set var.left, var.right = split_pair("one,two");
+    set req.http.X-Pair = var.left + "|" + var.right;
+    set var.total = 10;
+    set var.total += length("abc");
+    set req.http.X-Total = std.itoa(var.total);
+    set var.total = double(21);
+    set req.http.X-Double = std.itoa(var.total);
+    set req.http.X-Size = size_class(req.http.X-Choice);
+    set req.backend = F_origin;
+    return(lookup);
+}

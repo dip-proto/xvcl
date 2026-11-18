@@ -7,16 +7,34 @@
 
 
 
+
+sub vcl_hash {
+  set req.http.X-Func-echo-s = req.url;
+  call echo;
+  set req.hash += req.http.X-Func-echo-Return;
+  unset req.http.X-Func-echo-Return;
+  return(hash);
+}
+
 sub vcl_recv {
   declare local var.out STRING;
   declare local var.ok BOOL;
+  declare local var.n INTEGER;
   set req.http.X-Func-echo-s = "value";
   call echo;
   set req.http.X-Test = req.http.X-Func-echo-Return;
   unset req.http.X-Func-echo-Return;
+  set req.http.X-Func-echo-s = "x";
+  call echo;
+  set req.http.Control = req.http.X-Func-echo-Return;
+  unset req.http.X-Func-echo-Return;
   set req.http.X-Func-echo-s = "kept";
   call echo;
   set req.http.x-func-echo-return = req.http.X-Func-echo-Return;
+  set req.http.X-Func-echo-s = "x";
+  call echo;
+  set req.http.X-Label- = req.http.X-Func-echo-Return;
+  unset req.http.X-Func-echo-Return;
   set req.http.X-Func-echo-s = "a, b";
   call echo;
   set var.out = req.http.X-Func-echo-Return;
@@ -37,6 +55,11 @@ sub vcl_recv {
   call echo_twice;
   set var.out = req.http.X-Func-echo_twice-Return;
   unset req.http.X-Func-echo_twice-Return;
+  set req.http.X-Func-join-a = req.http.Host;
+  set req.http.X-Func-join-b = req.url;
+  call join;
+  set var.out = req.http.X-Func-join-Return;
+  unset req.http.X-Func-join-Return;
   set req.http.X-Func-join-a = "\";
   set req.http.X-Func-join-b = "b";
   call join;
@@ -60,6 +83,9 @@ sub vcl_recv {
   unset req.http.X-Func-in_range-Return;
   set req.http.X-Slash = "\";
   set req.http.X-Smile = ":)";
+  set req.http.X-Banner = {"first line
+echo(not a call)"};
+  set var.n = std.strlen(req.url);
 }
 
 // Function: echo

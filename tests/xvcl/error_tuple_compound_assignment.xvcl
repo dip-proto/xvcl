@@ -1,0 +1,10 @@
+// ERROR: Tuple assignment from 'pair' must use '=', not '+='
+// ERROR-AT: 9
+#def pair() -> (STRING, STRING)
+  return "a", "b";
+#enddef
+sub vcl_recv {
+  declare local var.a STRING;
+  declare local var.b STRING;
+  set var.a, var.b += pair();
+}

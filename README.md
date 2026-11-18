@@ -820,10 +820,14 @@ These headers are removed right after they're read, so they never reach the orig
 - **Type safety:** Parameters and returns are type-checked
 - **Multiple returns:** Use tuple syntax to return multiple values
 - **Automatic conversions:** INTEGER and BOOL are converted to/from STRING automatically
+- **Compound assignment:** `set req.hash += normalize(req.url);` works too
 - **Scope annotations:** Generated subroutines work in all VCL scopes
 
 **Rules:**
 
+- A call has to be the whole right side of a `set`, a `#let`, or a `return` in another function.
+  Calls can't be nested, since they share the same headers.
+  Store the inner result in a variable first.
 - Parameters and return values can be `STRING`, `INTEGER` or `BOOL`.
   `FLOAT` isn't supported, because VCL rounds it to three decimals when it becomes a string.
 - A function can't be named after a VCL keyword or builtin function, like `add`, `log`, `if`, `now` or `regsub`.

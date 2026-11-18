@@ -50,6 +50,10 @@ digest.hash_md5(url + "|" + host)
 {{60 * 60}}
 #endinline
 
+#inline two()
+2
+#endinline
+
 sub vcl_recv {
     // Test nested boolean macro calls
     if (both(is_get(req.method), is_asset(req.url.path))) {
@@ -79,4 +83,5 @@ sub vcl_recv {
     #endfor
     set var.n = text_length("a\\b");
     set var.n = default_ttl();
+    set var.n = {{ 10-two() }};
 }

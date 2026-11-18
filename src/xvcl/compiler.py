@@ -568,7 +568,6 @@ class XVCLCompiler:
         # (namespace, VCL name) -> (file, line).
         # Each kind of declaration has its own namespace, but a director can also be used as a backend.
         self._declared_names: dict[tuple[str, str], tuple[str, int]] = {}
-
         self._used_constants: set[str] = set()
         self._used_macros: set[str] = set()
         self._used_functions: set[str] = set()
@@ -1798,17 +1797,21 @@ class XVCLCompiler:
         return lines
 
     def _from_global_conversion_lines(
-        self, prefix: str, result_var: str, global_name: str, value_type: str
+        self,
+        prefix: str,
+        result_var: str,
+        global_name: str,
+        value_type: str,
+        operator: str = "=",
     ) -> list[str]:
         """Build statements that read a typed value from a STRING-backed global."""
-        lines = []
         if value_type == "INTEGER":
-            lines.append(f"{prefix}set {result_var} = std.atoi({global_name});")
+            value = f"std.atoi({global_name})"
         elif value_type == "BOOL":
-            lines.append(f'{prefix}set {result_var} = ({global_name} == "true");')
+            value = f'({global_name} == "true")'
         else:
-            lines.append(f"{prefix}set {result_var} = {global_name};")
-        return lines
+            value = global_name
+        return [f"{prefix}set {result_var} {operator} {value};"]
 
     def _process_lines(
         self, lines: list[str], start: int, end: int, context: dict[str, Any]
@@ -1821,6 +1824,7 @@ class XVCLCompiler:
         while i < end:
             line = lines[i]
             self.current_line = i + 1
+
             directive = self._directive(line)
 
             # Handle #for loops
@@ -1852,7 +1856,7 @@ class XVCLCompiler:
                 function = self._current_function
                 if function is not None:
                     line = self._rewrite_value_returns(self._expand_macros(line), function, context)
-                processed_line = self._process_function_calls(line)
+                processed_line = self._process_function_calls(line, expand_macros=function is None)
                 processed_line = self._substitute_expressions(processed_line, context)
                 self.output.append(processed_line)
                 # Track VCL declarations for duplicate detection, skipping commented-out ones.
@@ -2080,92 +2084,100 @@ class XVCLCompiler:
         self._finish_provenance_pass(new_prov, has_prov)
         return result
 
+    # VCL names can contain "-", and rol= and ror= are words, so those operators need a space before them.
+    # "X-Label-=" and "Control=" are plain assignments.
+    _ASSIGNMENT_PATTERN = re.compile(
+        r"(?P<lhs>[^=;]*?)(?P<op>\s*(?:[+*/%|&^]|<<|>>|&&|\|\|)?=|\s+(?:-|rol|ror)=)(?!=)"
+    )
     _NAME_BOUNDARY = r"(?<![\w.:-])"
+    _CALL_PATTERN = re.compile(r"(?<![\w.])(\w+)\s*\(")
     _RETURN_KEYWORD = re.compile(_NAME_BOUNDARY + r"return(?=\s)")
     _BARE_RETURN_AT_END = re.compile(_NAME_BOUNDARY + r"return\s*;$")
+    _SPACES_THEN_SEMICOLON = re.compile(r"\s*;")
 
     def _parse_set_function_call(
         self, line: str
-    ) -> Optional[tuple[str, str, list[str], str, list[str], str]]:
+    ) -> Optional[tuple[str, str, list[str], str, str, list[str], str]]:
         """
         Parse a line of the form:
             <prefix>set a, b = func(arg1, arg2);
-        Returns (before, indent, result_vars, func_name, args, suffix) or None.
+        Compound assignments such as "set x += func(...);" are recognized too.
+        Returns (before, indent, result_vars, operator, func_name, args, suffix) or None.
         """
         masked_line = _mask_vcl_opaque(line)
         for match in re.finditer(r"\bset\s+", masked_line):
-            prefix = line[: match.start()]
-            rest = line[match.end() :]
-
-            if "=" not in rest:
+            assignment = self._ASSIGNMENT_PATTERN.match(masked_line, match.end())
+            if not assignment:
                 continue
-
-            lhs, rhs = rest.split("=", 1)
-            lhs = lhs.strip()
-            rhs = rhs.lstrip()
-
+            lhs = line[match.end() : assignment.end("lhs")].strip()
             if not lhs:
                 continue
 
-            func_match = re.match(r"(\w+)\s*\(", rhs)
-            if not func_match:
+            # Spaces are checked on the real line: a masked string looks like spaces too.
+            rhs_start = len(line) - len(line[assignment.end() :].lstrip())
+            func_match = self._CALL_PATTERN.match(masked_line, rhs_start)
+            if not func_match or func_match.group(1) not in self.functions:
                 continue
-
             func_name = func_match.group(1)
-            if func_name not in self.functions:
-                continue
             open_paren_index = func_match.end() - 1
-            close_paren_index = _find_top_level(_mask_vcl_opaque(rhs), open_paren_index + 1, ")")
+            close_paren_index = _find_top_level(masked_line, open_paren_index + 1, ")")
             if close_paren_index is None:
                 continue
 
-            args_str = rhs[open_paren_index + 1 : close_paren_index]
-            tail = rhs[close_paren_index + 1 :]
-
-            semicolon_match = re.match(r"\s*;(?P<suffix>.*)", tail, flags=re.DOTALL)
+            semicolon_match = self._SPACES_THEN_SEMICOLON.match(line, close_paren_index + 1)
             if not semicolon_match:
                 continue
 
-            suffix = semicolon_match.group("suffix")
+            # Comments between arguments must not end up inside generated statements.
+            args_str = _strip_vcl_comments(line[open_paren_index + 1 : close_paren_index])
+            args = self._parse_macro_args(args_str) if args_str.strip() else []
 
-            # Split result vars (tuple unpacking if comma-separated)
             result_vars = [v.strip() for v in lhs.split(",")] if "," in lhs else [lhs]
             if any(not v for v in result_vars):
                 continue
 
-            args = []
-            if args_str.strip():
-                args = self._parse_macro_args(args_str)
-
+            prefix = line[: match.start()]
             physical_prefix = prefix.rsplit("\n", 1)[-1]
             indent_match = re.match(r"\s*", physical_prefix)
             indent = indent_match.group(0) if indent_match else ""
-            return prefix, indent, result_vars, func_name, args, suffix
+            suffix = line[semicolon_match.end() :]
+            operator = assignment.group("op").strip()
+            return prefix, indent, result_vars, operator, func_name, args, suffix
 
         return None
 
-    def _process_function_calls(self, line: str) -> str:
+    def _find_function_call(self, text: str) -> Optional[str]:
+        """Return the name of the first xvcl function called in VCL code, if any."""
+        if "(" not in text or not any(name in text for name in self.functions):
+            return None
+        for match in self._CALL_PATTERN.finditer(_vcl_code_view(text)):
+            if match.group(1) in self.functions:
+                return match.group(1)
+        return None
+
+    def _process_function_calls(self, line: str, expand_macros: bool = True) -> str:
         """Replace function calls with VCL subroutine calls using globals."""
-        # First, expand any macros in the line (NEW in v2.4)
-        expanded_line = self._expand_macros(line)
-        if "\n" in expanded_line and "\n" not in line:
-            return "\n".join(
-                self._process_function_calls(physical_line)
-                for physical_line in expanded_line.split("\n")
-            )
-        line = expanded_line
+        if expand_macros:
+            line = self._expand_macros(line)
 
         parsed = self._parse_set_function_call(line)
         if not parsed:
+            # Anything left would reach the VCL output as a call to an unknown function.
+            leftover = self._find_function_call(line)
+            if leftover:
+                raise self.make_error(
+                    f"Function '{leftover}' can only be called as 'set VAR = {leftover}(...);'",
+                    rule="unsupported-function-call",
+                    help="assign the result to a variable first, then use the variable",
+                )
             return line
 
-        before, indent, result_vars, func_name, args, suffix = parsed
+        before, indent, result_vars, operator, func_name, args, suffix = parsed
 
         func = self.functions[func_name]
         self._used_functions.add(func_name)
         return_types = func.get_return_types()
 
-        # Tuple assignment
         if len(result_vars) > 1:
             if not func.is_tuple_return():
                 raise self.make_error(
@@ -2190,37 +2202,13 @@ class XVCLCompiler:
                     ],
                 )
 
-            self._check_func_arg_count(func, args)
-
-            result_lines = []
-            for (param_name, param_type), arg in zip(func.params, args):
-                global_name = func.get_param_global(param_name)
-                result_lines.extend(self._param_to_global(indent, global_name, arg, param_type))
-
-            result_lines.append(f"{indent}call {func_name};")
-
-            for idx, (result_var, ret_type) in enumerate(zip(result_vars, return_types)):
-                return_global = func.get_return_global(idx)
-                result_lines.extend(
-                    self._global_to_var(indent, result_var, return_global, ret_type)
+            if operator != "=":
+                raise self.make_error(
+                    f"Tuple assignment from '{func_name}' must use '=', not '{operator}'",
+                    rule="return-count-mismatch",
+                    help="assign the values first, then combine them one by one",
                 )
-
-            # Request headers reach the origin, so results are removed once read.
-            # The exception is a result stored back into its own header.
-            targets = {result_var.lower() for result_var in result_vars}
-            for idx in range(len(return_types)):
-                return_global = func.get_return_global(idx)
-                if return_global.lower() not in targets:
-                    result_lines.append(f"{indent}unset {return_global};")
-
-            if suffix:
-                result_lines[-1] = f"{result_lines[-1]}{suffix}"
-
-            result_lines[0] = before + result_lines[0][len(indent) :]
-            return self._process_function_calls("\n".join(result_lines))
-
-        # Single assignment
-        if func.is_tuple_return():
+        elif func.is_tuple_return():
             raise self.make_error(
                 f"Function '{func_name}' returns {len(return_types)} values, but assigned to a single variable",
                 rule="return-count-mismatch",
@@ -2233,25 +2221,49 @@ class XVCLCompiler:
 
         self._check_func_arg_count(func, args)
 
+        for arg in args:
+            nested = self._find_function_call(arg)
+            if nested:
+                raise self.make_error(
+                    f"Call to '{nested}' inside the arguments of '{func_name}'",
+                    rule="nested-function-call",
+                    help=f"assign the result of '{nested}(...)' to a variable first, then pass the variable",
+                    notes=[
+                        "arguments and results go through shared headers, so an inner call "
+                        "could overwrite them"
+                    ],
+                )
+
         result_lines = []
         for (param_name, param_type), arg in zip(func.params, args):
             global_name = func.get_param_global(param_name)
-            result_lines.extend(self._param_to_global(indent, global_name, arg, param_type))
+            result_lines.extend(
+                self._to_global_conversion_lines(indent, global_name, arg, param_type)
+            )
 
         result_lines.append(f"{indent}call {func_name};")
 
-        return_global = func.get_return_global()
-        result_lines.extend(
-            self._global_to_var(indent, result_vars[0], return_global, return_types[0])
-        )
-        if return_global.lower() != result_vars[0].lower():
-            result_lines.append(f"{indent}unset {return_global};")
+        for idx, (result_var, ret_type) in enumerate(zip(result_vars, return_types)):
+            return_global = func.get_return_global(idx)
+            result_lines.extend(
+                self._from_global_conversion_lines(
+                    indent, result_var, return_global, ret_type, operator
+                )
+            )
+
+        # Request headers reach the origin, so results are removed once read.
+        # The exception is a result stored back into its own header.
+        targets = {result_var.lower() for result_var in result_vars}
+        for idx in range(len(return_types)):
+            return_global = func.get_return_global(idx)
+            if return_global.lower() not in targets:
+                result_lines.append(f"{indent}unset {return_global};")
 
         if suffix:
             result_lines[-1] = f"{result_lines[-1]}{suffix}"
 
         result_lines[0] = before + result_lines[0][len(indent) :]
-        return self._process_function_calls("\n".join(result_lines))
+        return self._process_function_calls("\n".join(result_lines), expand_macros=False)
 
     def _check_func_arg_count(self, func: Function, args: list[str]) -> None:
         """Raise if argument count doesn't match function parameter count."""
@@ -2290,11 +2302,9 @@ class XVCLCompiler:
 
     def _expand_macros_once(self, line: str) -> tuple[str, bool]:
         """Expand macros in a line once (one pass). Expand leftmost macro first."""
-        # Find potential macro calls by looking for identifier followed by (
-        pattern = r"\b(\w+)\s*\("
-
+        # Names inside dotted VCL identifiers such as std.strlen are not macro calls.
         masked_line = _mask_vcl_opaque(line)
-        for match in re.finditer(pattern, masked_line):
+        for match in self._CALL_PATTERN.finditer(masked_line):
             macro_name = match.group(1)
 
             # Check if this is a macro
@@ -2351,18 +2361,6 @@ class XVCLCompiler:
         if start < len(args_str):
             args.append(args_str[start:].strip())
         return args
-
-    def _param_to_global(
-        self, prefix: str, global_name: str, arg: str, param_type: str
-    ) -> list[str]:
-        """Convert parameter to global with type conversion."""
-        return self._to_global_conversion_lines(prefix, global_name, arg, param_type)
-
-    def _global_to_var(
-        self, prefix: str, result_var: str, return_global: str, ret_type: str
-    ) -> list[str]:
-        """Convert global to variable with type conversion."""
-        return self._from_global_conversion_lines(prefix, result_var, return_global, ret_type)
 
     _DIRECTIVE_PATTERN = re.compile(
         r"#(const|def|elif|else|enddef|endfor|endif|endinline|for|if|include|inline|let)(?:\s|$)"

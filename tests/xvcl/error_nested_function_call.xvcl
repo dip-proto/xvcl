@@ -1,0 +1,9 @@
+// ERROR: Call to 'join' inside the arguments of 'join'
+// ERROR-AT: 8
+#def join(a STRING, b STRING) -> STRING
+  return a + "/" + b;
+#enddef
+sub vcl_recv {
+  declare local var.r STRING;
+  set var.r = join("x", join("y", "z"));
+}

@@ -32,11 +32,24 @@
 s
 #endinline
 
+#inline banner()
+{"first line
+echo(not a call)"}
+#endinline
+
+sub vcl_hash {
+  set req.hash += echo(req.url);
+  return(hash);
+}
+
 sub vcl_recv {
   declare local var.out STRING;
   declare local var.ok BOOL;
+  declare local var.n INTEGER;
   set req.http.X-Test = echo("value");
+  set req.http.Control=echo("x");
   set req.http.x-func-echo-return = echo("kept");
+  set req.http.X-Label-=echo("x");
   set var.out = echo("a, b");
   set var.out = echo(":)");
   set var.out = echo(regsub(req.url.path, "/+", "/"));
@@ -44,10 +57,16 @@ sub vcl_recv {
     "a   b"
   );
   set var.out = echo_twice(req.url);
+  set var.out = join(
+    req.http.Host, // the host, then the path
+    req.url
+  );
   set var.out = join("\", "{{ ["a", "b"][1] }}");
   set var.ok = is_api(req.url);
   set var.out = yes_no(var.ok);
   set var.ok = in_range({{ [10, 60][1] }});
   set req.http.X-Slash = strlen("\");
   set req.http.X-Smile = strlen(":)");
+  set req.http.X-Banner = banner();
+  set var.n = std.strlen(strlen(req.url));
 }

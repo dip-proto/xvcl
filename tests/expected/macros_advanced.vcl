@@ -16,6 +16,7 @@
 
 
 
+
 sub vcl_recv {
     // Test nested boolean macro calls
     if (req.method == "GET" && req.url.path ~ "\\.(?:css|js)$") {
@@ -41,4 +42,5 @@ sub vcl_recv {
     set var.n = 21;
     set var.n = 3;
     set var.n = 3600;
+    set var.n = 8;
 }
