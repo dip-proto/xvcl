@@ -50,6 +50,14 @@ set req.http.X-Never = "8";
 set req.http.X-Never = "9";
 #endif // VERSION
 
+// Directives inside a block comment are just text
+#if ENV == "production"
+/*
+#else
+*/
+set req.http.X-Commented = "kept";
+#endif
+
 // A comment that starts with "#if" isn't a nested block
 #if DEBUG
 #if-none-match is handled elsewhere

@@ -21,6 +21,16 @@ sub vcl_recv {
   ) {
     set req.http.X-Picked = "1";
   }
+  call retired;
+}
+
+/*
+sub retired {
+  set req.http.X-Old = url("old");
+}
+*/
+sub retired {
+  set req.http.X-New = "1";
 }
 
 sub vcl_error {

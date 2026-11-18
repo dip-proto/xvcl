@@ -22,9 +22,11 @@ import os
 import re
 import sys
 import textwrap
+from bisect import bisect_left, bisect_right
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from difflib import get_close_matches
+from itertools import accumulate
 from typing import Any, Optional
 
 
@@ -336,6 +338,19 @@ def _mask_vcl_opaque(text: str) -> str:
 def _vcl_code_view(text: str) -> str:
     """Blank everything that isn't VCL code: strings, comments and templates."""
     return _blank(text, [(start, end) for _, start, end in _vcl_segments(text)])
+
+
+def _continuation_lines(lines: list[str]) -> list[bool]:
+    """Flag each line that starts inside a block comment, long string or template from an earlier line."""
+    text = "\n".join(lines)
+    starts = list(accumulate((len(line) + 1 for line in lines[:-1]), initial=0))
+    flags = [False] * len(lines)
+    for _, start, end in _vcl_segments(text):
+        # Short strings can't span lines, and an unclosed one must not swallow the rest of the file.
+        if text[start] in "{/":
+            for index in range(bisect_right(starts, start), bisect_left(starts, end)):
+                flags[index] = True
+    return flags
 
 
 def _vcl_token_spans(text: str) -> list[tuple[int, int]]:
@@ -1792,11 +1807,11 @@ class XVCLCompiler:
                 processed_line = self._process_function_calls(line)
                 processed_line = self._substitute_expressions(processed_line, context)
                 self.output.append(processed_line)
-                # Track VCL declarations for duplicate detection
-                for generated_line in processed_line.splitlines():
-                    m = self._VCL_DECL_PATTERN.match(generated_line)
-                    if not m:
-                        continue
+                # Track VCL declarations for duplicate detection, skipping commented-out ones.
+                code = ""
+                if self._VCL_DECL_PATTERN.search(processed_line):
+                    code = _vcl_code_view(processed_line)
+                for m in self._VCL_DECL_PATTERN.finditer(code):
                     decl_kind = m.group(1)
                     decl_name = m.group(2)
                     if decl_kind == "sub" and decl_name in self._CONCATENABLE_VCL_SUBROUTINES:
@@ -1908,17 +1923,27 @@ class XVCLCompiler:
 
     def _join_multiline_directives(self, lines: list[str]) -> list[str]:
         """
-        Join multi-line directive expressions into single lines.
-        Supports #const, #for, #if, and #let when expressions span multiple lines,
-        such as multi-line arrays.
+        Join lines that belong together into single entries.
+        That's #const, #for, #if, #elif, and #let when their expression spans multiple lines, such as multi-line arrays.
+        It's also every line of a multi-line comment, long string or template, so that text in there is never read as a directive.
         Also updates self._line_provenance to track the first physical line of each join.
         """
-        result = []
+        result: list[str] = []
+        first_indexes: list[int] = []
         new_prov, has_prov = self._start_provenance_pass(lines)
+        continuations = _continuation_lines(lines)
         i = 0
 
         while i < len(lines):
             line = lines[i]
+
+            if continuations[i] and result:
+                result[-1] += "\n" + line
+                if has_prov:
+                    new_prov[-1] = self._merged_provenance(first_indexes[-1], i)
+                i += 1
+                continue
+            first_indexes.append(i)
 
             if self._directive(line) not in ("#const", "#elif", "#for", "#if", "#let"):
                 result.append(line)
@@ -2285,7 +2310,7 @@ class XVCLCompiler:
         return "#" + match.group(1) if match else None
 
     _VCL_DECL_PATTERN = re.compile(
-        r"^\s*(backend|sub|table|acl|director|penaltybox|ratecounter)\s+([\w.-]+)"
+        r"^[ \t]*(backend|sub|table|acl|director|penaltybox|ratecounter)\s+([\w.-]+)", re.MULTILINE
     )
     _CONCATENABLE_VCL_SUBROUTINES = frozenset(
         {

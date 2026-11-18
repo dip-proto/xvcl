@@ -16,5 +16,11 @@ set req.http.X-Range = "two";
 
 // No branch taken
 
+// Directives inside a block comment are just text
+/*
+#else
+*/
+set req.http.X-Commented = "kept";
+
 // A comment that starts with "#if" isn't a nested block
 set req.http.X-Debug = "off";
