@@ -39,6 +39,11 @@ class Colors:
     GRAY = "\033[90m"
 
 
+def _styled(text: str, *codes: str, enabled: bool) -> str:
+    """Wrap text in ANSI codes when colors are enabled."""
+    return "".join(codes) + text + Colors.RESET if enabled else text
+
+
 @dataclass
 class SourceLocation:
     """Tracks source location for error reporting."""
@@ -72,13 +77,11 @@ class Diagnostic:
         parts = []
 
         # Header: error[rule]: message
-        severity_label = self.severity
-        if use_colors:
-            color = Colors.RED if self.severity == "error" else Colors.YELLOW
-            parts.append(f"{color}{Colors.BOLD}{severity_label}[{self.rule}]{Colors.RESET}")
-            parts.append(f"{Colors.BOLD}: {self.message}{Colors.RESET}\n")
-        else:
-            parts.append(f"{severity_label}[{self.rule}]: {self.message}\n")
+        color = Colors.RED if self.severity == "error" else Colors.YELLOW
+        parts.append(
+            _styled(f"{self.severity}[{self.rule}]", color, Colors.BOLD, enabled=use_colors)
+        )
+        parts.append(_styled(f": {self.message}", Colors.BOLD, enabled=use_colors) + "\n")
 
         # Location: --> file:line
         if self.file:
@@ -173,10 +176,7 @@ class PreprocessorError(Exception):
         # Legacy fallback for errors not yet converted to Diagnostic
         parts = []
 
-        if use_colors:
-            parts.append(f"{Colors.RED}{Colors.BOLD}Error{Colors.RESET}")
-        else:
-            parts.append("Error")
+        parts.append(_styled("Error", Colors.RED, Colors.BOLD, enabled=use_colors))
 
         if self.location:
             parts.append(f" at {self.location}:")
@@ -188,11 +188,10 @@ class PreprocessorError(Exception):
         if self.context_lines and self.location:
             parts.append("\n  Context:\n")
             for line_num, line_text in self.context_lines:
-                prefix = "  → " if line_num == self.location.line else "    "
-                if use_colors and line_num == self.location.line:
-                    parts.append(f"{Colors.BOLD}{prefix}{line_num}: {line_text}{Colors.RESET}\n")
-                else:
-                    parts.append(f"{prefix}{line_num}: {line_text}\n")
+                current = line_num == self.location.line
+                prefix = "  → " if current else "    "
+                text = f"{prefix}{line_num}: {line_text}"
+                parts.append(_styled(text, Colors.BOLD, enabled=use_colors and current) + "\n")
 
         return "".join(parts)
 
@@ -454,7 +453,9 @@ class XVCLCompiler:
         """Log debug message if debug mode is enabled."""
         if self.debug:
             prefix = "  " * indent
-            print(f"{Colors.GRAY}[DEBUG]{Colors.RESET} {prefix}{message}")
+            print(
+                f"{_styled('[DEBUG]', Colors.GRAY, enabled=sys.stdout.isatty())} {prefix}{message}"
+            )
 
     def get_context_lines(self, line_num: int, context: int = 3) -> list[tuple[int, str]]:
         """Get context lines around the given line number."""
@@ -582,7 +583,9 @@ class XVCLCompiler:
             raise Exception(f"Error writing output file {output_path}: {e}")
 
         # Summary
-        print(f"{Colors.GREEN}✓{Colors.RESET} Compiled {input_path} -> {output_path}")
+        print(
+            f"{_styled('✓', Colors.GREEN, enabled=sys.stdout.isatty())} Compiled {input_path} -> {output_path}"
+        )
         if self.constants:
             print(f"  Constants: {len(self.constants)}")
         if self.macros:
@@ -2540,6 +2543,7 @@ Example:
 
     error_format = args.error_format
     use_json = error_format == "json"
+    use_colors = sys.stderr.isatty()
 
     try:
         compiler = XVCLCompiler(
@@ -2557,9 +2561,13 @@ Example:
                 )
             else:
                 for w in warnings:
-                    print(w.format_text(use_colors=True), file=sys.stderr)
+                    print(w.format_text(use_colors=use_colors), file=sys.stderr)
 
-        print(f"{Colors.GREEN}{Colors.BOLD}✓ Compilation complete{Colors.RESET}")
+        print(
+            _styled(
+                "✓ Compilation complete", Colors.GREEN, Colors.BOLD, enabled=sys.stdout.isatty()
+            )
+        )
 
     except PreprocessorError as e:
         # The error that stopped compilation isn't always among the collected ones.
@@ -2575,28 +2583,31 @@ Example:
         else:
             if all_error_diags:
                 for diag in all_error_diags[:10]:  # Cap at 10
-                    print(diag.format_text(use_colors=True), file=sys.stderr)
+                    print(diag.format_text(use_colors=use_colors), file=sys.stderr)
                 if len(all_error_diags) > 10:
                     print(
                         f"... and {len(all_error_diags) - 10} more errors",
                         file=sys.stderr,
                     )
             else:
-                print(e.format_error(use_colors=True), file=sys.stderr)
+                print(e.format_error(use_colors=use_colors), file=sys.stderr)
         sys.exit(1)
     except FileNotFoundError as e:
         diag = Diagnostic(rule="file-not-found", severity="error", message=str(e))
         if use_json:
             print(json.dumps({"diagnostics": [diag.to_json()]}, indent=2), file=sys.stderr)
         else:
-            print(f"{Colors.RED}Error:{Colors.RESET} {e}", file=sys.stderr)
+            print(f"{_styled('Error:', Colors.RED, enabled=use_colors)} {e}", file=sys.stderr)
         sys.exit(1)
     except Exception as e:
         diag = Diagnostic(rule="internal-error", severity="error", message=str(e))
         if use_json:
             print(json.dumps({"diagnostics": [diag.to_json()]}, indent=2), file=sys.stderr)
         else:
-            print(f"{Colors.RED}Unexpected error:{Colors.RESET} {e}", file=sys.stderr)
+            print(
+                f"{_styled('Unexpected error:', Colors.RED, enabled=use_colors)} {e}",
+                file=sys.stderr,
+            )
             import traceback
 
             traceback.print_exc()

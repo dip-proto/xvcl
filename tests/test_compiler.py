@@ -121,7 +121,7 @@ class TestWarnings:
     """Tests for warnings printed by successful compilations."""
 
     def test_unused_const_warning(self, tmp_path: Path):
-        """The warning points at the right line after a multi-line #const."""
+        """The warning points at the right line after a multi-line #const, without colors when piped."""
         source_file = tmp_path / "main.xvcl"
         source_file.write_text(
             '#const LIST = [\n  1,\n  2\n]\n#const UNUSED = 5\nset req.http.X = "{{LIST[0]}}";\n'
@@ -132,6 +132,7 @@ class TestWarnings:
         assert returncode == 0, stderr
         assert "Constant 'UNUSED' is defined but never used" in stderr
         assert f"--> {source_file}:5\n" in stderr
+        assert "\x1b[" not in stderr
 
 
 class TestCLI:
