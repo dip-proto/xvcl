@@ -196,6 +196,21 @@ class PreprocessorError(Exception):
         return "".join(parts)
 
 
+def _python_string_end(text: str, start: int) -> int:
+    """Return the end of the Python string literal that starts at start."""
+    quote = text[start]
+    delimiter = quote * 3 if text.startswith(quote * 3, start) else quote
+    i = start + len(delimiter)
+    while i < len(text):
+        if text[i] == "\\" and i + 1 < len(text):
+            i += 2
+        elif text.startswith(delimiter, i):
+            return i + len(delimiter)
+        else:
+            i += 1
+    return len(text)
+
+
 def _is_vcl_var_char(char: str) -> bool:
     """Return whether a character can be part of a VCL variable token."""
     return char.isalnum() or char in "_.:-"
@@ -1667,34 +1682,30 @@ class XVCLCompiler:
 
     def _count_unquoted_delimiters(self, text: str) -> tuple[int, int]:
         """
-        Count parentheses and bracket balance, ignoring those inside string literals.
-        Returns (paren_depth, bracket_depth).
+        Count parentheses and bracket balance in Python code, ignoring strings and comments.
+        Returns (paren_depth, bracket_depth), where brackets include {} braces.
         """
         paren_depth = 0
         bracket_depth = 0
-        in_string = False
-        string_char = None
         i = 0
         while i < len(text):
             char = text[i]
-            if in_string:
-                if char == "\\" and i + 1 < len(text):
-                    i += 2
-                    continue
-                elif char == string_char:
-                    in_string = False
-            else:
-                if char in ('"', "'"):
-                    in_string = True
-                    string_char = char
-                elif char == "(":
-                    paren_depth += 1
-                elif char == ")":
-                    paren_depth -= 1
-                elif char == "[":
-                    bracket_depth += 1
-                elif char == "]":
-                    bracket_depth -= 1
+            if char in "\"'":
+                i = _python_string_end(text, i)
+                continue
+            if char == "#":
+                newline = text.find("\n", i)
+                if newline == -1:
+                    break
+                i = newline
+            elif char == "(":
+                paren_depth += 1
+            elif char == ")":
+                paren_depth -= 1
+            elif char in "[{":
+                bracket_depth += 1
+            elif char in "]}":
+                bracket_depth -= 1
             i += 1
         return paren_depth, bracket_depth
 
@@ -1718,7 +1729,8 @@ class XVCLCompiler:
                 i += 1
                 continue
 
-            paren_depth, bracket_depth = self._count_unquoted_delimiters(line)
+            expression = line.lstrip().split(None, 1)[1] if len(line.split()) > 1 else ""
+            paren_depth, bracket_depth = self._count_unquoted_delimiters(expression)
             if paren_depth == 0 and bracket_depth == 0:
                 result.append(line)
                 self._keep_line_provenance(new_prov, has_prov, i)

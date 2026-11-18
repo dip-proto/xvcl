@@ -2,7 +2,7 @@
 #const NAME = "example"
 #const PORT = 443
 #const ENABLED = true
-#const RATIO = 0.75
+#const RATIO = 0.75  # a ratio {
 
 backend {{NAME}} {
     .port = "{{PORT}}";
@@ -16,3 +16,12 @@ set req.http.X-Enabled = "yes";
 // Expression: arithmetic
 #const DOUBLE_PORT = PORT * 2
 set req.http.X-Port = "{{DOUBLE_PORT}}";
+
+// Multi-line dict
+#const PORTS = {
+  "web": 80,
+  "api": 8080,
+}
+#for name, port in PORTS.items()
+set req.http.X-Port-{{name}} = "{{port}}";
+#endfor
