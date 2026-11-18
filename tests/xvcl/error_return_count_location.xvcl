@@ -1,0 +1,12 @@
+// ERROR: Function 'pair' expects 2 return values, got 1
+// ERROR-AT: 6
+// Padding, so that a wrong line number gets noticed.
+
+#def pair(a STRING) -> (STRING, STRING)
+  return a;
+#enddef
+sub vcl_recv {
+  declare local var.x STRING;
+  declare local var.y STRING;
+  set var.x, var.y = pair("q");
+}

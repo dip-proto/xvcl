@@ -3,8 +3,29 @@
   return s;
 #enddef
 
+#def echo_twice(s STRING) -> STRING
+  return echo(s);
+#enddef
+
 #def join(a STRING, b STRING) -> STRING
   return a + "/" + b;
+#enddef
+
+#def is_api(url STRING) -> BOOL
+  if (url == "") { return ; }
+  if (url ~ "^/api/") { return true; }
+  return false; /* everything else */
+#enddef
+
+#def yes_no(flag BOOL) -> STRING
+  if (flag) { return "yes"; } else { return "no"; }
+#enddef
+
+#const LIMIT = 100
+
+#def in_range(n INTEGER) -> BOOL
+  if (n > {{ LIMIT // 2 }} && n < {{ LIMIT }}) { return true; }
+  return false;
 #enddef
 
 #inline strlen(s)
@@ -13,6 +34,7 @@ s
 
 sub vcl_recv {
   declare local var.out STRING;
+  declare local var.ok BOOL;
   set req.http.X-Test = echo("value");
   set req.http.x-func-echo-return = echo("kept");
   set var.out = echo("a, b");
@@ -21,7 +43,11 @@ sub vcl_recv {
   set var.out = echo(
     "a   b"
   );
+  set var.out = echo_twice(req.url);
   set var.out = join("\", "{{ ["a", "b"][1] }}");
+  set var.ok = is_api(req.url);
+  set var.out = yes_no(var.ok);
+  set var.ok = in_range({{ [10, 60][1] }});
   set req.http.X-Slash = strlen("\");
   set req.http.X-Smile = strlen(":)");
 }

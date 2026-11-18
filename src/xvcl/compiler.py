@@ -340,6 +340,12 @@ def _vcl_code_view(text: str) -> str:
     return _blank(text, [(start, end) for _, start, end in _vcl_segments(text)])
 
 
+def _strip_vcl_comments(text: str) -> str:
+    """Replace each VCL comment with a space."""
+    comments = [(start, end, " ") for kind, start, end in _vcl_segments(text) if kind == "comment"]
+    return _apply_edits(text, comments)
+
+
 def _continuation_lines(lines: list[str]) -> list[bool]:
     """Flag each line that starts inside a block comment, long string or template from an earlier line."""
     text = "\n".join(lines)
@@ -581,6 +587,9 @@ class XVCLCompiler:
 
         # Per-line provenance: maps line index -> LineProvenance
         self._line_provenance: list[_LineProv] = []
+
+        # The #def whose body is being compiled, if any
+        self._current_function: Optional[Function] = None
 
     def log_debug(self, message: str, indent: int = 0):
         """Log debug message if debug mode is enabled."""
@@ -1475,7 +1484,7 @@ class XVCLCompiler:
                 body = lines[i + 1 : enddef_idx]
 
                 # Check for missing return statement
-                has_return = any(re.match(r"\s*return\s+", line) for line in body)
+                has_return = self._RETURN_KEYWORD.search(_vcl_code_view("\n".join(body)))
                 if return_type and not has_return:
                     ret_desc = (
                         f"({', '.join(return_type)})"
@@ -1687,84 +1696,89 @@ class XVCLCompiler:
 
         saved_output = self.output
         self.output = []
+        self._current_function = func
         self._process_lines(body_lines, 0, len(body_lines), {})
+        self._current_function = None
         body_output = self.output
         self.output = saved_output
         self._line_provenance = saved_provenance
 
-        value_return_pattern = re.compile(
-            r"^(?P<indent>\s*)return\s+(?P<expressions>.+?);"
-            r"(?P<trailing>\s*(?:(?://|#).*)?)$",
-            flags=re.DOTALL,
+        self.output.extend(body_output)
+
+        # If the body can reach its end, still hand back the return values.
+        last_statement = next(
+            (code for code in map(_vcl_code_view, reversed(body_output)) if code.strip()), ""
         )
-        can_fall_through = True
-        for candidate in reversed(body_output):
-            if candidate.strip() and not candidate.lstrip().startswith(("//", "#")):
-                can_fall_through = value_return_pattern.match(candidate) is None
-                break
-
-        # Post-process the body output to handle return statements
-        for line in body_output:
-            # Replace "return expr1, expr2;" with multiple assignments
-            return_match = value_return_pattern.match(line)
-            if return_match:
-                indent = return_match.group("indent")
-                expressions = return_match.group("expressions")
-                trailing = return_match.group("trailing")
-                if func.is_tuple_return():
-                    # Parse: return expr1, expr2, expr3;
-                    exprs = self._parse_macro_args(expressions)
-
-                    if len(exprs) != len(return_types):
-                        raise self.make_error(
-                            f"Function '{func.name}' expects {len(return_types)} return values, got {len(exprs)}",
-                            line_num=func.location.line if func.location else None,
-                            rule="return-expr-count",
-                            help=f"return statement must have exactly {len(return_types)} comma-separated expressions",
-                            notes=[f"return type is ({', '.join(return_types)})"],
-                        )
-
-                    for idx, expr in enumerate(exprs):
-                        self.output.append(f"{indent}set var.return_value{idx} = {expr};")
-                    for idx, ret_type in enumerate(return_types):
-                        local_var = f"var.return_value{idx}"
-                        return_global = func.get_return_global(idx)
-                        self.output.extend(
-                            self._to_global_conversion_lines(
-                                indent, return_global, local_var, ret_type
-                            )
-                        )
-                else:
-                    # Single return
-                    self.output.append(f"{indent}set var.return_value = {expressions};")
-                    return_global = func.get_return_global()
-                    self.output.extend(
-                        self._to_global_conversion_lines(
-                            indent, return_global, "var.return_value", return_types[0]
-                        )
-                    )
-
-                # This is a VOID bridge subroutine, so a bare return transfers control
-                # back to the generated call site without terminating the lifecycle sub.
-                self.output.append(f"{indent}return;{trailing}")
-                continue
-
-            self.output.append(line)
-
-        # A function whose last statement is not a value return can fall off the end.
-        # Preserve the previous default-value behavior for that path.
-        if can_fall_through:
+        if not self._BARE_RETURN_AT_END.search(last_statement.rstrip()):
             self.output.append("")
-            if func.is_tuple_return():
-                for idx, ret_type in enumerate(return_types):
-                    return_global = func.get_return_global(idx)
-                    self._write_return_conversion(return_global, f"var.return_value{idx}", ret_type)
-            else:
-                return_global = func.get_return_global()
-                self._write_return_conversion(return_global, "var.return_value", return_types[0])
+            for idx, ret_type in enumerate(return_types):
+                local_var = (
+                    f"var.return_value{idx}" if func.is_tuple_return() else "var.return_value"
+                )
+                self.output.extend(
+                    self._to_global_conversion_lines(
+                        "  ", func.get_return_global(idx), local_var, ret_type
+                    )
+                )
 
         self.output.append("}")
         self.output.append("")
+
+    def _rewrite_value_returns(self, text: str, func: Function, context: dict[str, Any]) -> str:
+        """Turn the 'return EXPR;' statements of a #def body into assignments for the caller.
+
+        The generated sub is VOID, so the value is stored in a header and a bare return goes back to the call site.
+        """
+        if "return" not in text:
+            return text
+        code = _vcl_code_view(text)
+        return_types = func.get_return_types()
+        edits: list[tuple[int, int, str]] = []
+
+        for match in self._RETURN_KEYWORD.finditer(code):
+            end = _find_top_level(code, match.end(), ";")
+            expressions = _strip_vcl_comments(text[match.end() : end]).strip() if end else ""
+            if not expressions:
+                continue
+
+            if func.is_tuple_return():
+                # Expand templates first, since one may produce several values.
+                exprs = self._parse_macro_args(self._substitute_expressions(expressions, context))
+                if len(exprs) != len(return_types):
+                    raise self.make_error(
+                        f"Function '{func.name}' expects {len(return_types)} return values, got {len(exprs)}",
+                        rule="return-expr-count",
+                        help=f"return statement must have exactly {len(return_types)} comma-separated expressions",
+                        notes=[f"return type is ({', '.join(return_types)})"],
+                    )
+                statements = [
+                    f"set var.return_value{idx} = {expr};" for idx, expr in enumerate(exprs)
+                ]
+                for idx, ret_type in enumerate(return_types):
+                    statements.extend(
+                        self._to_global_conversion_lines(
+                            "", func.get_return_global(idx), f"var.return_value{idx}", ret_type
+                        )
+                    )
+            else:
+                statements = [f"set var.return_value = {expressions};"]
+                statements.extend(
+                    self._to_global_conversion_lines(
+                        "", func.get_return_global(), "var.return_value", return_types[0]
+                    )
+                )
+            statements.append("return;")
+
+            line_start = text.rfind("\n", 0, match.start()) + 1
+            if code[line_start : match.start()].strip():
+                replacement = " ".join(statement.strip() for statement in statements)
+            else:
+                indent = text[line_start : match.start()]
+                replacement = f"\n{indent}".join(statements)
+            assert end is not None
+            edits.append((match.start(), end + 1, replacement))
+
+        return _apply_edits(text, edits)
 
     def _to_global_conversion_lines(
         self, prefix: str, global_name: str, value_expr: str, value_type: str
@@ -1795,10 +1809,6 @@ class XVCLCompiler:
         else:
             lines.append(f"{prefix}set {result_var} = {global_name};")
         return lines
-
-    def _write_return_conversion(self, global_var: str, local_var: str, var_type: str) -> None:
-        """Helper to write type conversion for return value."""
-        self.output.extend(self._to_global_conversion_lines("  ", global_var, local_var, var_type))
 
     def _process_lines(
         self, lines: list[str], start: int, end: int, context: dict[str, Any]
@@ -1839,6 +1849,9 @@ class XVCLCompiler:
 
             # Regular line - process function calls and template substitutions
             else:
+                function = self._current_function
+                if function is not None:
+                    line = self._rewrite_value_returns(self._expand_macros(line), function, context)
                 processed_line = self._process_function_calls(line)
                 processed_line = self._substitute_expressions(processed_line, context)
                 self.output.append(processed_line)
@@ -2066,6 +2079,10 @@ class XVCLCompiler:
 
         self._finish_provenance_pass(new_prov, has_prov)
         return result
+
+    _NAME_BOUNDARY = r"(?<![\w.:-])"
+    _RETURN_KEYWORD = re.compile(_NAME_BOUNDARY + r"return(?=\s)")
+    _BARE_RETURN_AT_END = re.compile(_NAME_BOUNDARY + r"return\s*;$")
 
     def _parse_set_function_call(
         self, line: str

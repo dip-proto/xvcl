@@ -2,6 +2,7 @@
 
 
 
+
 sub vcl_recv {
     declare local var.q INTEGER;
     declare local var.r INTEGER;
@@ -62,6 +63,20 @@ sub divmod {
     set var.return_value1 = var.remainder;
     set req.http.X-Func-divmod-Return0 = std.itoa(var.return_value0);
     set req.http.X-Func-divmod-Return1 = std.itoa(var.return_value1);
+    return;
+}
+
+// Function: origin
+//@recv, hash, hit, miss, pass, fetch, error, deliver, log
+sub origin {
+
+  declare local var.return_value0 INTEGER;
+  declare local var.return_value1 INTEGER;
+
+    set var.return_value0 = 0;
+    set var.return_value1 = 0;
+    set req.http.X-Func-origin-Return0 = std.itoa(var.return_value0);
+    set req.http.X-Func-origin-Return1 = std.itoa(var.return_value1);
     return;
 }
 

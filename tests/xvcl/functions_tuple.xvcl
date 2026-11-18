@@ -9,6 +9,10 @@
     return var.quotient, var.remainder;
 #enddef
 
+#def origin() -> (INTEGER, INTEGER)
+    return {{ "0, 0" }};
+#enddef
+
 #def parse_pair(s STRING) -> (STRING, STRING)
     declare local var.key STRING;
     declare local var.value STRING;
