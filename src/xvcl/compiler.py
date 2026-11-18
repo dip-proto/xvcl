@@ -366,6 +366,18 @@ def _find_top_level(code: str, start: int, stops: str) -> Optional[int]:
     return None
 
 
+def _split_like(text: str, entries: list[str]) -> list[str]:
+    """Cut text, which has the same newlines as "\\n".join(entries), back into one piece per entry."""
+    lines = text.split("\n")
+    pieces = []
+    pos = 0
+    for entry in entries:
+        count = entry.count("\n") + 1
+        pieces.append("\n".join(lines[pos : pos + count]))
+        pos += count
+    return pieces
+
+
 def _apply_edits(text: str, edits: list[tuple[int, int, str]]) -> str:
     """Replace non-overlapping (start, end, replacement) spans of text."""
     result = []
@@ -440,13 +452,15 @@ class Function:
         params: list[tuple[str, str]],
         return_type,
         body: list[str],
-        location: Optional[SourceLocation] = None,
+        location: SourceLocation,
+        body_provenance: list["_LineProv"],
     ):
         self.name = name
         self.params = params  # [(param_name, param_type), ...]
         self.return_type = return_type  # str for single return, List[str] for tuple
         self.body = body
         self.location = location
+        self.body_provenance = body_provenance  # one entry per body line, or empty
 
     def get_param_global(self, param_name: str) -> str:
         """Get the global header name for a parameter."""
@@ -1441,7 +1455,10 @@ class XVCLCompiler:
                 # Store function with provenance-resolved location
                 prov = self._resolve_provenance(i + 1)
                 location = SourceLocation(prov.file, prov.line)
-                self.functions[name] = Function(name, params, return_type, body, location)
+                body_provenance = self._line_provenance[i + 1 : enddef_idx] if has_prov else []
+                self.functions[name] = Function(
+                    name, params, return_type, body, location, body_provenance
+                )
 
                 self.log_debug(
                     f"Defined function: {name}({', '.join(p[0] for p in params)}) -> {return_type}"
@@ -1606,26 +1623,24 @@ class XVCLCompiler:
             self.output.append(f"  declare local var.return_value {return_types[0]};")
         self.output.append("")
 
-        # Process function body
-        # Parameters in the xvcl syntax are bare identifiers, while the generated
-        # VCL locals use the var.* namespace. Work on the complete body so that
-        # multiline long strings and block comments remain opaque.
+        # Parameters become var.* locals.
+        # Replacing them in the whole body keeps multi-line strings and comments intact.
+        # The body is then cut back into its entries, so multi-line directives stay joined.
         processed_body = _replace_vcl_identifiers(
             "\n".join(func.body), {name: f"var.{name}" for name, _ in func.params}
         )
-        param_substituted_body = processed_body.split("\n")
-        param_substituted_body = self._join_multiline_function_calls(
-            param_substituted_body, track_provenance=False
-        )
+        body_lines = _split_like(processed_body, func.body)
 
-        # Save current output and process body
+        saved_provenance = self._line_provenance
+        self._line_provenance = func.body_provenance
+        body_lines = self._join_multiline_function_calls(body_lines)
+
         saved_output = self.output
         self.output = []
-
-        self._process_lines(param_substituted_body, 0, len(param_substituted_body), {})
-
+        self._process_lines(body_lines, 0, len(body_lines), {})
         body_output = self.output
         self.output = saved_output
+        self._line_provenance = saved_provenance
 
         value_return_pattern = re.compile(
             r"^(?P<indent>\s*)return\s+(?P<expressions>.+?);"
@@ -1862,14 +1877,6 @@ class XVCLCompiler:
         else:
             self.output.append(processed_set)
 
-    def _count_unquoted_parens(self, text: str) -> int:
-        """
-        Count parentheses balance, ignoring those inside string literals.
-        Returns positive number for more opens than closes.
-        """
-        paren_depth, _ = self._count_unquoted_delimiters(text)
-        return paren_depth
-
     def _count_unquoted_delimiters(self, text: str) -> tuple[int, int]:
         """
         Count parentheses and bracket balance in Python code, ignoring strings and comments.
@@ -1946,16 +1953,16 @@ class XVCLCompiler:
         self._finish_provenance_pass(new_prov, has_prov)
         return result
 
-    def _join_multiline_function_calls(
-        self, lines: list[str], *, track_provenance: bool = True
-    ) -> list[str]:
+    def _join_multiline_function_calls(self, lines: list[str]) -> list[str]:
         """
         Join multi-line function calls into single lines.
         Also updates self._line_provenance.
         """
         result = []
-        new_prov, has_prov = self._start_provenance_pass(lines) if track_provenance else ([], False)
-        masked_lines = _mask_vcl_opaque("\n".join(lines)).split("\n")
+        new_prov, has_prov = self._start_provenance_pass(lines)
+
+        # Masked as a whole, since strings and comments can span lines.
+        masked_lines = _split_like(_mask_vcl_opaque("\n".join(lines)), lines)
         i = 0
 
         while i < len(lines):
@@ -1969,8 +1976,7 @@ class XVCLCompiler:
                 i += 1
                 continue
 
-            # Count parentheses (ignoring those in strings) to see if they balance
-            paren_depth = self._count_unquoted_parens(masked_line)
+            paren_depth = masked_line.count("(") - masked_line.count(")")
 
             if paren_depth == 0:
                 # Balanced on this line, no joining needed
@@ -1984,10 +1990,10 @@ class XVCLCompiler:
             accumulated = [line]
             i += 1
 
-            while i < len(lines) and paren_depth > 0:
-                next_line = lines[i]
-                accumulated.append(next_line)
-                paren_depth += self._count_unquoted_parens(masked_lines[i])
+            # A directive inside the parentheses must still run as a directive.
+            while i < len(lines) and paren_depth > 0 and not self._directive(lines[i]):
+                accumulated.append(lines[i])
+                paren_depth += masked_lines[i].count("(") - masked_lines[i].count(")")
                 i += 1
 
             # Keep physical newlines. The call parser accepts whitespace, while

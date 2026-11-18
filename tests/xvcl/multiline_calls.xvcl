@@ -5,6 +5,27 @@
     return var.result;
 #enddef
 
+#def size_class(choice STRING) -> STRING
+#for option in [
+    "small",
+    "large"
+]
+    if (choice == "{{option}}") {
+        return "{{option}}";
+    }
+#endfor
+    return "none";
+#enddef
+
+#def wrap(input STRING) -> STRING
+    #let wrapped STRING = process(
+        input,
+        "<",
+        ">"
+    );
+    return var.wrapped;
+#enddef
+
 sub vcl_recv {
     declare local var.result STRING;
 
@@ -21,4 +42,18 @@ sub vcl_recv {
         "<<",
         ">>"
     );
+
+    // Multi-line calls after a multi-line #for list
+#for suffix in [
+    "_a",
+    "_b"
+]
+    set var.result = process(
+        req.http.Host,
+        "",
+        "{{suffix}}"
+    );
+#endfor
+    set var.result = size_class(req.http.X-Size);
+    set var.result = wrap(var.result);
 }

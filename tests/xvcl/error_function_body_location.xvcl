@@ -1,0 +1,15 @@
+// ERROR: Name 'NOPE' is not defined
+// ERROR-AT: 10
+#def echo(a STRING) -> STRING
+  return a;
+#enddef
+#def shout(a STRING) -> STRING
+  set req.http.X-Echo = echo(
+    a
+  );
+  set req.http.X-Bad = "{{NOPE}}";
+  return a;
+#enddef
+sub vcl_recv {
+  set req.http.R = shout("x");
+}

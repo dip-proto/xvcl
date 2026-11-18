@@ -15,6 +15,12 @@ sub vcl_recv {
   }
   set req.http.X-Half = std.itoa(50); set req.http.X-Url = "https://example.com/" + "half";
 
+  // A condition can be built from conditional pieces
+  if (
+    req.http.X-Release
+  ) {
+    set req.http.X-Picked = "1";
+  }
 }
 
 sub vcl_error {

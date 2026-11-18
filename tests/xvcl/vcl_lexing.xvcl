@@ -26,6 +26,16 @@ sub vcl_recv {
   set req.http.X-Debug = "division";
 #endif
 
+  // A condition can be built from conditional pieces
+  if (
+#if DEBUG
+    req.http.X-Debug
+#else
+    req.http.X-Release
+#endif
+  ) {
+    set req.http.X-Picked = "1";
+  }
 }
 
 sub vcl_error {
