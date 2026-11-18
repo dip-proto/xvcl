@@ -1,0 +1,6 @@
+// ERROR: Name 'UNDEFINED_NAME' is not defined
+// ERROR-AT: 6
+#include "includes/location_lib.xvcl"
+set req.http.A = "a";
+set req.http.B = "b";
+set req.http.C = "{{UNDEFINED_NAME}}";

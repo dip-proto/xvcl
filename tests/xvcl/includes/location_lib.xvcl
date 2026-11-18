@@ -1,0 +1,7 @@
+// Included by error_include_location.xvcl.
+// It's longer than what follows the #include there, so a stale line table would point into this file.
+set req.http.X-Lib-1 = "1";
+set req.http.X-Lib-2 = "2";
+set req.http.X-Lib-3 = "3";
+set req.http.X-Lib-4 = "4";
+set req.http.X-Lib-5 = "5";

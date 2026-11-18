@@ -1,2 +1,7 @@
 // ERROR: Invalid #const syntax
+// ERROR: included from
+// ERROR: error_include_bad_const.xvcl:6
+#if (
+  true)
 #include "includes/bad_const.xvcl"
+#endif

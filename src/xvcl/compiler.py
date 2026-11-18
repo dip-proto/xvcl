@@ -912,9 +912,10 @@ class XVCLCompiler:
                 saved_file = self.current_file
                 saved_line = self.current_line
                 saved_lines = self.current_lines
+                saved_provenance = self._line_provenance
 
                 # Build include chain for provenance
-                child_chain = include_chain + [(current_file, i + 1)]
+                child_chain = include_chain + [(current_file, self._resolve_provenance(i + 1).line)]
 
                 # Process included file
                 self.current_file = resolved_path
@@ -940,6 +941,7 @@ class XVCLCompiler:
                 self.current_file = saved_file
                 self.current_line = saved_line
                 self.current_lines = saved_lines
+                self._line_provenance = saved_provenance
 
                 # Pop from stack
                 self.include_stack.pop()
