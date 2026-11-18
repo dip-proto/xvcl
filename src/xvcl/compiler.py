@@ -2562,12 +2562,10 @@ Example:
         print(f"{Colors.GREEN}{Colors.BOLD}✓ Compilation complete{Colors.RESET}")
 
     except PreprocessorError as e:
-        # Collect all error diagnostics from the compiler
+        # The error that stopped compilation isn't always among the collected ones.
         all_error_diags = [d for d in compiler.diagnostics if d.severity == "error"]
-        if not all_error_diags and e.diagnostic:
-            all_error_diags = [e.diagnostic]
-        elif not all_error_diags:
-            all_error_diags = []
+        if e.diagnostic and e.diagnostic not in all_error_diags:
+            all_error_diags.append(e.diagnostic)
 
         if use_json:
             diags = (

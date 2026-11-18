@@ -1,0 +1,5 @@
+// ERROR: Generated duplicate VCL declaration 'F_origin'
+// ERROR: Name 'UNDEFINED_HOST' is not defined
+backend F_origin { .host = "a.example.com"; }
+backend F_origin { .host = "a.example.com"; }
+set req.http.X = "{{UNDEFINED_HOST}}";
