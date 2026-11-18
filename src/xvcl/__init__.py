@@ -9,7 +9,7 @@ A preprocessor and compiler for Fastly VCL with metaprogramming features includi
 - File includes
 """
 
-__version__ = "2.7.0"
+__version__ = "2.9.0"
 __all__ = ["XVCLCompiler", "Diagnostic", "__version__"]
 
 
