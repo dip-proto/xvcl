@@ -744,9 +744,7 @@ class XVCLCompiler:
 
         # Check for duplicate constants
         if name in self.constants:
-            prev_file, prev_line = self._const_locations.get(
-                name, (self.current_file, self.current_line)
-            )
+            prev_file, prev_line = self._const_locations[name]
             raise self.make_error(
                 f"Constant '{name}' is already defined",
                 rule="const-redefined",
@@ -756,7 +754,8 @@ class XVCLCompiler:
                 help="rename this constant or remove the duplicate",
             )
 
-        self._const_locations[name] = (self.current_file, self.current_line)
+        prov = self._resolve_provenance(self.current_line)
+        self._const_locations[name] = (prov.file, prov.line)
         self.constants[name] = value
         self.log_debug(f"Defined constant: {name} = {value}")
 
