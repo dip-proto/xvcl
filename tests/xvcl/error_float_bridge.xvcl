@@ -1,0 +1,6 @@
+// ERROR: Type 'FLOAT' is not supported in xvcl function parameters/returns
+// ERROR: a FLOAT would be rounded to three decimals on the way
+// ERROR-AT: 4
+#def half(x FLOAT) -> FLOAT
+  return x;
+#enddef

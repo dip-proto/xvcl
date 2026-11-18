@@ -2,7 +2,6 @@
 
 
 
-
 sub vcl_recv {
     declare local var.sum INTEGER;
     set req.http.X-Func-add_ints-a = std.itoa(5);
@@ -15,11 +14,6 @@ sub vcl_recv {
     set req.http.X-Func-concat-s2 = "world";
     call concat;
     set var.str = req.http.X-Func-concat-Return;
-
-    declare local var.doubled FLOAT;
-    set req.http.X-Func-double_float-x = "" + 3.5;
-    call double_float;
-    set var.doubled = std.atof(req.http.X-Func-double_float-Return);
 
     declare local var.positive BOOL;
     set req.http.X-Func-is_positive-n = std.itoa(42);
@@ -63,24 +57,6 @@ sub concat {
     set var.result = var.s1 + var.s2;
     set var.return_value = var.result;
     set req.http.X-Func-concat-Return = var.return_value;
-    return;
-}
-
-// Function: double_float
-//@recv, hash, hit, miss, pass, fetch, error, deliver, log
-sub double_float {
-
-  declare local var.x FLOAT;
-
-  set var.x = std.atof(req.http.X-Func-double_float-x);
-
-  declare local var.return_value FLOAT;
-
-    declare local var.result FLOAT;
-    set var.result = var.x;
-    set var.result *= 2.0;
-    set var.return_value = var.result;
-    set req.http.X-Func-double_float-Return = "" + var.return_value;
     return;
 }
 

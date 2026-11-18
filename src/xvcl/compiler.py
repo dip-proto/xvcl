@@ -896,8 +896,9 @@ class XVCLCompiler:
 
     _RESERVED_FUNCTION_NAMES = _FALCO_KEYWORDS | _FASTLY_RESERVED_NAMES
 
-    # Types that xvcl's function bridge can convert through STRING headers
-    _BRIDGE_TYPES = frozenset({"STRING", "INTEGER", "FLOAT", "BOOL"})
+    # Types that can go through the STRING headers used to pass arguments and results.
+    # FLOAT isn't one of them, since VCL rounds it to three decimals when it becomes a string.
+    _BRIDGE_TYPES = frozenset({"STRING", "INTEGER", "BOOL"})
     _CONST_TYPES = frozenset({"STRING", "INTEGER", "FLOAT", "BOOL"})
 
     def _validate_vcl_type(self, type_name: str, context: str) -> None:
@@ -930,6 +931,9 @@ class XVCLCompiler:
                 notes=[
                     f"in {context}",
                     "xvcl function parameter passing converts through STRING headers",
+                    "a FLOAT would be rounded to three decimals on the way"
+                    if type_name == "FLOAT"
+                    else "",
                     f"supported types for #def: {', '.join(sorted(self._BRIDGE_TYPES))}",
                 ],
             )
@@ -1622,8 +1626,6 @@ class XVCLCompiler:
         lines = []
         if value_type == "INTEGER":
             lines.append(f"{prefix}set {global_name} = std.itoa({value_expr});")
-        elif value_type == "FLOAT":
-            lines.append(f'{prefix}set {global_name} = "" + {value_expr};')
         elif value_type == "BOOL":
             lines.append(f"{prefix}if ({value_expr}) {{")
             lines.append(f'{prefix}  set {global_name} = "true";')
@@ -1631,7 +1633,6 @@ class XVCLCompiler:
             lines.append(f'{prefix}  set {global_name} = "false";')
             lines.append(f"{prefix}}}")
         else:
-            # STRING and others
             lines.append(f"{prefix}set {global_name} = {value_expr};")
         return lines
 
@@ -1642,8 +1643,6 @@ class XVCLCompiler:
         lines = []
         if value_type == "INTEGER":
             lines.append(f"{prefix}set {result_var} = std.atoi({global_name});")
-        elif value_type == "FLOAT":
-            lines.append(f"{prefix}set {result_var} = std.atof({global_name});")
         elif value_type == "BOOL":
             lines.append(f'{prefix}set {result_var} = ({global_name} == "true");')
         else:

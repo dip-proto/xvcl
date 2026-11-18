@@ -169,6 +169,9 @@ set var.clean = normalize("/PATH");
 set var.a, var.b = parse("input");
 ```
 
+Parameters and return values can be `STRING`, `INTEGER` or `BOOL`.
+`FLOAT` isn't supported, because it would be rounded to three decimals.
+
 A function can't be named after a VCL keyword or builtin function, like `add`, `log`, `if` or `regsub`.
 
 ## Supported Types

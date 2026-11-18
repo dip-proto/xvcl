@@ -12,13 +12,6 @@
     return var.result;
 #enddef
 
-#def double_float(x FLOAT) -> FLOAT
-    declare local var.result FLOAT;
-    set var.result = x;
-    set var.result *= 2.0;
-    return var.result;
-#enddef
-
 #def is_positive(n INTEGER) -> BOOL
     declare local var.result BOOL;
     if (n > 0) {
@@ -35,9 +28,6 @@ sub vcl_recv {
 
     declare local var.str STRING;
     set var.str = concat("hello", "world");
-
-    declare local var.doubled FLOAT;
-    set var.doubled = double_float(3.5);
 
     declare local var.positive BOOL;
     set var.positive = is_positive(42);
