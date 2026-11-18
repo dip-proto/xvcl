@@ -3,12 +3,24 @@
   return s;
 #enddef
 
+#def join(a STRING, b STRING) -> STRING
+  return a + "/" + b;
+#enddef
+
+#inline strlen(s)
+s
+#endinline
+
 sub vcl_recv {
   declare local var.out STRING;
   set req.http.X-Test = echo("value");
   set var.out = echo("a, b");
+  set var.out = echo(":)");
   set var.out = echo(regsub(req.url.path, "/+", "/"));
   set var.out = echo(
     "a   b"
   );
+  set var.out = join("\", "{{ ["a", "b"][1] }}");
+  set req.http.X-Slash = strlen("\");
+  set req.http.X-Smile = strlen(":)");
 }

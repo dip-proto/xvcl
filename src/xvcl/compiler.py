@@ -22,6 +22,7 @@ import os
 import re
 import sys
 import textwrap
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from difflib import get_close_matches
 from typing import Any, Optional
@@ -211,89 +212,180 @@ def _python_string_end(text: str, start: int) -> int:
     return len(text)
 
 
-def _is_vcl_var_char(char: str) -> bool:
-    """Return whether a character can be part of a VCL variable token."""
-    return char.isalnum() or char in "_.:-"
-
-
-def _vcl_opaque_end(text: str, start: int) -> Optional[int]:
-    """Return the end of a VCL string or comment beginning at start, if any."""
-    if text.startswith("//", start) or text[start] == "#":
-        newline = text.find("\n", start)
-        return len(text) if newline == -1 else newline
-
-    if text.startswith("/*", start):
-        end = text.find("*/", start + 2)
-        return len(text) if end == -1 else end + 2
-
-    # VCL long strings use {"..."}, optionally with a heredoc identifier:
-    # {NAME"..."NAME}.
-    if text[start] == "{":
-        long_string = re.match(r'\{([A-Za-z]*)"', text[start:])
-        if long_string:
-            delimiter = f'"{long_string.group(1)}}}'
-            end = text.find(delimiter, start + long_string.end())
-            return len(text) if end == -1 else end + len(delimiter)
-
-    if text[start] in ('"', "'"):
-        quote = text[start]
-        end = start + 1
-        while end < len(text):
-            if text[end] == "\\" and end + 1 < len(text):
-                end += 2
-                continue
-            if text[end] == quote:
-                return end + 1
-            end += 1
-        return len(text)
-
+def _find_template_expression_end(text: str, start: int) -> Optional[int]:
+    """Find the }} that closes a template expression, ignoring Python strings and nested brackets."""
+    delimiter_stack = []
+    matching_open = {")": "(", "]": "[", "}": "{"}
+    i = start
+    while i < len(text):
+        char = text[i]
+        if char in "\"'":
+            i = _python_string_end(text, i)
+            continue
+        if char in "([{":
+            delimiter_stack.append(char)
+        elif char in ")]}":
+            if delimiter_stack and delimiter_stack[-1] == matching_open[char]:
+                delimiter_stack.pop()
+            elif char == "}" and not delimiter_stack and text.startswith("}}", i):
+                return i
+        i += 1
     return None
 
 
-def _mask_vcl_opaque(text: str) -> str:
-    """Mask VCL strings and comments with spaces while preserving offsets."""
-    masked = list(text)
+def _template_end(text: str, start: int) -> Optional[int]:
+    """Return the end of the {{...}} template expression at start, if it is closed."""
+    if not text.startswith("{{", start):
+        return None
+    end = _find_template_expression_end(text, start + 2)
+    return None if end is None else end + 2
+
+
+def _find_outside_templates(text: str, needle: str, start: int) -> int:
+    """Like str.find, but skips template expressions, whose text is Python and not VCL."""
+    while True:
+        pos = text.find(needle, start)
+        template = text.find("{{", start)
+        if pos == -1 or template == -1 or pos < template:
+            return pos
+        end = _template_end(text, template)
+        if end is None:
+            return pos
+        start = end
+
+
+_SEGMENT_START = re.compile(r"[{/#\"']")
+_LONG_STRING_OPEN = re.compile(r'\{([A-Za-z0-9_]*)"')
+_NOT_NEWLINE = re.compile(r"[^\n]")
+_QUOTE = re.compile(r"[\"']")
+_VCL_TOKEN = re.compile(r"[\w.:-]+")
+
+
+def _vcl_segments(text: str, let_is_code: bool = False) -> Iterator[tuple[str, int, int]]:
+    """Yield (kind, start, end) for each template, string and comment in VCL text.
+
+    kind is "template", "string" or "comment".
+    VCL strings have no escapes, and a template inside a string belongs to that string.
+    """
     i = 0
-    while i < len(text):
-        opaque_end = _vcl_opaque_end(text, i)
-        if opaque_end is None:
+    while match := _SEGMENT_START.search(text, i):
+        i = match.start()
+        long_string = _LONG_STRING_OPEN.match(text, i)
+        if (end := _template_end(text, i)) is not None:
+            kind = "template"
+        elif long_string:
+            kind = "string"
+            closing = f'"{long_string.group(1)}}}'
+            end = _find_outside_templates(text, closing, long_string.end())
+            end = len(text) if end == -1 else end + len(closing)
+        elif text.startswith("/*", i):
+            kind = "comment"
+            end = text.find("*/", i + 2)
+            end = len(text) if end == -1 else end + 2
+        elif text.startswith("//", i) or (
+            text[i] == "#" and not (let_is_code and text.startswith("#let ", i))
+        ):
+            kind = "comment"
+            end = text.find("\n", i)
+            end = len(text) if end == -1 else end
+        elif text[i] == '"':
+            kind = "string"
+            end = _find_outside_templates(text, '"', i + 1)
+            end = len(text) if end == -1 else end + 1
+        elif text[i] == "'":
+            # Single quotes only occur in Python, inside compile-time expressions.
+            kind = "string"
+            end = _python_string_end(text, i)
+        else:
             i += 1
             continue
-        for pos in range(i, opaque_end):
-            if masked[pos] != "\n":
-                masked[pos] = " "
-        i = opaque_end
-    return "".join(masked)
+        yield kind, i, end
+        i = end
 
 
-def _replace_vcl_identifier(text: str, identifier: str, replacement: str) -> str:
-    """Replace a bare VCL identifier without touching strings, comments, or variables."""
+def _blank(text: str, spans: Iterable[tuple[int, int]]) -> str:
+    """Replace each (start, end) span with spaces, keeping newlines so offsets still line up."""
+    parts = []
+    cursor = 0
+    for start, end in spans:
+        parts.append(text[cursor:start])
+        parts.append(_NOT_NEWLINE.sub(" ", text[start:end]))
+        cursor = end
+    if not parts:
+        return text
+    parts.append(text[cursor:])
+    return "".join(parts)
+
+
+def _mask_vcl_opaque(text: str) -> str:
+    """Blank VCL strings and comments, and the Python strings inside templates.
+
+    The rest of a template stays visible, since macros can be used there.
+    """
+    spans: list[tuple[int, int]] = []
+    for kind, start, end in _vcl_segments(text):
+        if kind != "template":
+            spans.append((start, end))
+            continue
+        while quote := _QUOTE.search(text, start, end):
+            start = min(end, _python_string_end(text, quote.start()))
+            spans.append((quote.start(), start))
+    return _blank(text, spans)
+
+
+def _vcl_code_view(text: str) -> str:
+    """Blank everything that isn't VCL code: strings, comments and templates."""
+    return _blank(text, [(start, end) for _, start, end in _vcl_segments(text)])
+
+
+def _vcl_token_spans(text: str) -> list[tuple[int, int]]:
+    """Return (start, end) offsets of VCL tokens outside strings, comments and templates.
+
+    #let lines count as code, since their initializer can use function parameters.
+    """
+    spans: list[tuple[int, int]] = []
+    cursor = 0
+    for _, start, end in _vcl_segments(text, let_is_code=True):
+        spans.extend(token.span() for token in _VCL_TOKEN.finditer(text, cursor, start))
+        cursor = end
+    spans.extend(token.span() for token in _VCL_TOKEN.finditer(text, cursor))
+    return spans
+
+
+def _find_top_level(code: str, start: int, stops: str) -> Optional[int]:
+    """Return the index of the first character of stops at parenthesis depth 0, in masked code."""
+    depth = 0
+    for pos in range(start, len(code)):
+        char = code[pos]
+        if char in stops and depth == 0:
+            return pos
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+    return None
+
+
+def _apply_edits(text: str, edits: list[tuple[int, int, str]]) -> str:
+    """Replace non-overlapping (start, end, replacement) spans of text."""
     result = []
-    i = 0
-
-    while i < len(text):
-        # #let is an xvcl directive whose runtime initializer may reference a
-        # function parameter; a bare # otherwise starts a VCL line comment.
-        is_let_directive = text[i] == "#" and text.startswith("#let ", i)
-        opaque_end = None if is_let_directive else _vcl_opaque_end(text, i)
-        if opaque_end is not None:
-            result.append(text[i:opaque_end])
-            i = opaque_end
-            continue
-
-        if _is_vcl_var_char(text[i]):
-            end = i + 1
-            while end < len(text) and _is_vcl_var_char(text[end]):
-                end += 1
-            token = text[i:end]
-            result.append(replacement if token == identifier else token)
-            i = end
-            continue
-
-        result.append(text[i])
-        i += 1
-
+    cursor = 0
+    for start, end, replacement in sorted(edits):
+        result.append(text[cursor:start])
+        result.append(replacement)
+        cursor = end
+    result.append(text[cursor:])
     return "".join(result)
+
+
+def _replace_vcl_identifiers(text: str, replacements: dict[str, str]) -> str:
+    """Replace bare VCL identifiers, all in one pass, without touching strings, comments or variables."""
+    edits = [
+        (start, end, replacements[text[start:end]])
+        for start, end in _vcl_token_spans(text)
+        if text[start:end] in replacements
+    ]
+    return _apply_edits(text, edits)
 
 
 class Macro:
@@ -329,7 +421,7 @@ class Macro:
                 if start == -1:
                     template_parts.append(result[cursor:])
                     break
-                end = XVCLCompiler._find_template_expression_end(result, start + 2)
+                end = _find_template_expression_end(result, start + 2)
                 if end is None:
                     template_parts.append(result[cursor:])
                     break
@@ -339,7 +431,7 @@ class Macro:
                 template_parts.append("}}")
                 cursor = end + 2
             result = "".join(template_parts)
-            result = _replace_vcl_identifier(result, param, arg)
+            result = _replace_vcl_identifiers(result, {param: arg})
 
         # Macro expansion is deliberately textual. VCL only permits grouped
         # expressions in boolean contexts, so adding parentheses here can change
@@ -1523,14 +1615,12 @@ class XVCLCompiler:
         self.output.append("")
 
         # Process function body
-        processed_body = "\n".join(func.body)
-        for param_name, _ in func.params:
-            # Parameters in the xvcl syntax are bare identifiers, while the generated
-            # VCL locals use the var.* namespace. Work on the complete body so that
-            # multiline long strings and block comments remain opaque.
-            processed_body = _replace_vcl_identifier(
-                processed_body, param_name, f"var.{param_name}"
-            )
+        # Parameters in the xvcl syntax are bare identifiers, while the generated
+        # VCL locals use the var.* namespace. Work on the complete body so that
+        # multiline long strings and block comments remain opaque.
+        processed_body = _replace_vcl_identifiers(
+            "\n".join(func.body), {name: f"var.{name}" for name, _ in func.params}
+        )
         param_substituted_body = processed_body.split("\n")
         param_substituted_body = self._join_multiline_function_calls(
             param_substituted_body, track_provenance=False
@@ -1917,39 +2007,6 @@ class XVCLCompiler:
         self._finish_provenance_pass(new_prov, has_prov)
         return result
 
-    def _find_matching_paren(self, text: str, start: int) -> Optional[int]:
-        """Find the matching ')' for '(' at index start, ignoring strings."""
-        if start < 0 or start >= len(text) or text[start] != "(":
-            return None
-
-        depth = 1
-        pos = start + 1
-        in_string = False
-        string_char = None
-
-        while pos < len(text) and depth > 0:
-            char = text[pos]
-            if in_string:
-                if char == "\\" and pos + 1 < len(text):
-                    pos += 2
-                    continue
-                elif char == string_char:
-                    in_string = False
-            else:
-                if char in ('"', "'"):
-                    in_string = True
-                    string_char = char
-                elif char == "(":
-                    depth += 1
-                elif char == ")":
-                    depth -= 1
-            pos += 1
-
-        if depth != 0:
-            return None
-
-        return pos - 1
-
     def _parse_set_function_call(
         self, line: str
     ) -> Optional[tuple[str, str, list[str], str, list[str], str]]:
@@ -1981,7 +2038,7 @@ class XVCLCompiler:
             if func_name not in self.functions:
                 continue
             open_paren_index = func_match.end() - 1
-            close_paren_index = self._find_matching_paren(rhs, open_paren_index)
+            close_paren_index = _find_top_level(_mask_vcl_opaque(rhs), open_paren_index + 1, ")")
             if close_paren_index is None:
                 continue
 
@@ -2157,35 +2214,11 @@ class XVCLCompiler:
             if macro_name not in self.macros:
                 continue
 
-            # Find the matching closing parenthesis (ignoring parens inside strings)
-            start_pos = match.end()  # Position after the opening (
-            paren_depth = 1
-            pos = start_pos
-            in_string = False
-            string_char = None
-
-            while pos < len(line) and paren_depth > 0:
-                char = line[pos]
-                if in_string:
-                    if char == "\\" and pos + 1 < len(line):
-                        # Skip escaped character
-                        pos += 2
-                        continue
-                    elif char == string_char:
-                        in_string = False
-                else:
-                    if char in ('"', "'"):
-                        in_string = True
-                        string_char = char
-                    elif char == "(":
-                        paren_depth += 1
-                    elif char == ")":
-                        paren_depth -= 1
-                pos += 1
-
-            if paren_depth != 0:
-                # Unmatched parentheses - skip this match
+            close_paren = _find_top_level(masked_line, match.end(), ")")
+            if close_paren is None:
                 continue
+            start_pos = match.end()
+            pos = close_paren + 1
 
             # Extract arguments string (between parentheses)
             args_str = line[start_pos : pos - 1]
@@ -2221,49 +2254,15 @@ class XVCLCompiler:
         return line, False
 
     def _parse_macro_args(self, args_str: str) -> list[str]:
-        """Parse macro arguments, handling nested parentheses and strings."""
+        """Split call arguments on commas outside strings, comments, templates and parentheses."""
+        code = _vcl_code_view(args_str)
         args = []
-        current_arg = []
-        depth = 0
-        in_string = False
-        string_char = None
-        i = 0
-
-        while i < len(args_str):
-            char = args_str[i]
-
-            if in_string:
-                current_arg.append(char)
-                if char == "\\" and i + 1 < len(args_str):
-                    # Include escaped character
-                    current_arg.append(args_str[i + 1])
-                    i += 2
-                    continue
-                elif char == string_char:
-                    in_string = False
-            else:
-                if char in ('"', "'"):
-                    in_string = True
-                    string_char = char
-                    current_arg.append(char)
-                elif char == "(":
-                    depth += 1
-                    current_arg.append(char)
-                elif char == ")":
-                    depth -= 1
-                    current_arg.append(char)
-                elif char == "," and depth == 0:
-                    # End of current argument
-                    args.append("".join(current_arg).strip())
-                    current_arg = []
-                else:
-                    current_arg.append(char)
-            i += 1
-
-        # Add last argument
-        if current_arg:
-            args.append("".join(current_arg).strip())
-
+        start = 0
+        while (comma := _find_top_level(code, start, ",")) is not None:
+            args.append(args_str[start:comma].strip())
+            start = comma + 1
+        if start < len(args_str):
+            args.append(args_str[start:].strip())
         return args
 
     def _param_to_global(
@@ -2499,7 +2498,7 @@ class XVCLCompiler:
                 break
 
             result.append(line[cursor:start])
-            end = self._find_template_expression_end(line, start + 2)
+            end = _find_template_expression_end(line, start + 2)
             if end is None:
                 raise self.make_error(
                     "No matching '}}' for template expression",
@@ -2522,45 +2521,6 @@ class XVCLCompiler:
             cursor = end + 2
 
         return "".join(result)
-
-    @staticmethod
-    def _find_template_expression_end(text: str, start: int) -> Optional[int]:
-        """Find an outer }} while ignoring Python strings and nested delimiters."""
-        delimiter_stack = []
-        matching_open = {")": "(", "]": "[", "}": "{"}
-        i = start
-
-        while i < len(text):
-            if text[i] in ('"', "'"):
-                quote = text[i]
-                triple = text.startswith(quote * 3, i)
-                delimiter = quote * (3 if triple else 1)
-                i += len(delimiter)
-                while i < len(text):
-                    if text[i] == "\\" and i + 1 < len(text):
-                        i += 2
-                        continue
-                    if text.startswith(delimiter, i):
-                        i += len(delimiter)
-                        break
-                    i += 1
-                continue
-
-            char = text[i]
-            if char in "([{":
-                delimiter_stack.append(char)
-                i += 1
-                continue
-            if char in ")]}":
-                if delimiter_stack and delimiter_stack[-1] == matching_open[char]:
-                    delimiter_stack.pop()
-                    i += 1
-                    continue
-                if char == "}" and not delimiter_stack and text.startswith("}}", i):
-                    return i
-            i += 1
-
-        return None
 
     def _evaluate_expression(self, expr: str, context: dict[str, Any]) -> Any:
         """Safely evaluate an expression in the given context."""

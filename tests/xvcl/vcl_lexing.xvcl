@@ -1,0 +1,36 @@
+// Test: VCL strings, heredocs, and templates are scanned like Fastly does
+#const DEBUG = false
+#const LIMIT = 100
+
+#inline url(x)
+"https://example.com/" + x
+#endinline
+
+sub vcl_recv {
+  // A backslash is an ordinary character in a VCL string
+  set req.url = std.replaceall(req.url, "\", "/");
+  set req.http.X-Home = "\" + url("home");
+  // Text inside a template is Python, even when it looks like a macro call or a quote
+  set req.http.X-Raw = {{ '"url(raw)"' }};
+  set req.http.X-Len = url("{{ len('\"') }}");
+#if DEBUG
+  set req.http.X-Debug = "backslash";
+#endif
+
+  // In a template, // is Python's integer division
+  if (std.atoi(req.http.X-N) > {{ LIMIT // 2 }}) {
+    set req.http.X-Big = "1";
+  }
+  set req.http.X-Half = std.itoa({{ LIMIT // 2 }}); set req.http.X-Url = url("half");
+#if DEBUG
+  set req.http.X-Debug = "division";
+#endif
+
+}
+
+sub vcl_error {
+  // Heredoc delimiters may contain digits and underscores
+  synthetic {EOF_1"<a href="url(home)">here</a>"EOF_1};
+  set obj.http.Location = url("home");
+  return(deliver);
+}
