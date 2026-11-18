@@ -671,11 +671,12 @@ class XVCLCompiler:
         suggestions: Optional[list[str]] = None,
         severity: str = "error",
     ) -> PreprocessorError:
-        """Create a PreprocessorError with a structured Diagnostic."""
-        actual_line = line_num or self.current_line
+        """Create a PreprocessorError with a structured Diagnostic.
 
+        line_num is a 1-based index into the current provenance table, not a source line number.
+        """
         # Resolve provenance to get the real origin file/line/source text
-        prov = self._resolve_provenance(actual_line)
+        prov = self._resolve_provenance(line_num or self.current_line)
 
         loc = SourceLocation(prov.file, prov.line)
 
