@@ -670,7 +670,7 @@ class XVCLCompiler:
             stripped = line.strip()
             self.current_line = i + 1
 
-            if stripped.startswith("#const "):
+            if self._directive(line) == "#const":
                 try:
                     self._extract_single_constant(stripped)
                 except PreprocessorError as e:
@@ -848,7 +848,7 @@ class XVCLCompiler:
             stripped = line.strip()
             self.current_line = i + 1
 
-            if stripped.startswith("#include "):
+            if self._directive(line) == "#include":
                 # Parse: #include "path/to/file.xvcl"
                 match = re.match(r'#include\s+["\'](.+?)["\']', stripped)
                 if not match:
@@ -1029,7 +1029,7 @@ class XVCLCompiler:
             stripped = line.strip()
             self.current_line = i + 1
 
-            if stripped.startswith("#inline "):
+            if self._directive(line) == "#inline":
                 # Parse: #inline name(param1, param2, ...)
                 match = re.match(r"#inline\s+(\w+)\s*\(([^)]*)\)", stripped)
                 if not match:
@@ -1127,7 +1127,7 @@ class XVCLCompiler:
             stripped = line.strip()
             self.current_line = i + 1
 
-            if stripped.startswith("#def "):
+            if self._directive(line) == "#def":
                 # Parse function definition
                 func_def = self._parse_function_def(stripped)
                 if not func_def:
@@ -1540,28 +1540,32 @@ class XVCLCompiler:
         i = start
         while i < end:
             line = lines[i]
-            stripped = line.strip()
             self.current_line = i + 1
+            directive = self._directive(line)
 
             # Handle #for loops
-            if stripped.startswith("#for "):
+            if directive == "#for":
                 self.log_debug(f"Processing #for at line {self.current_line}", indent=1)
                 i = self._process_for_loop(lines, i, end, context)
 
             # Handle #if conditionals
-            elif stripped.startswith("#if "):
+            elif directive == "#if":
                 self.log_debug(f"Processing #if at line {self.current_line}", indent=1)
                 i = self._process_if(lines, i, end, context)
 
             # Handle #let (declare + initialize)
-            elif stripped.startswith("#let "):
+            elif directive == "#let":
                 self.log_debug(f"Processing #let at line {self.current_line}", indent=1)
                 self._process_let(line, context)
                 i += 1
 
-            # Skip control flow keywords
-            elif stripped in ("#else", "#endif", "#endfor", "#enddef", "#endinline"):
-                return i
+            # Blocks never pass their own closing line here, so this one has no opening directive.
+            elif directive in ("#elif", "#else", "#endif", "#endfor", "#enddef", "#endinline"):
+                raise self.make_error(
+                    f"'{directive}' without a matching opening directive",
+                    rule="unmatched-directive",
+                    help=f"remove this '{directive}' or add the block it belongs to",
+                )
 
             # Regular line - process function calls and template substitutions
             else:
@@ -1704,14 +1708,11 @@ class XVCLCompiler:
         result = []
         new_prov, has_prov = self._start_provenance_pass(lines)
         i = 0
-        # str.startswith accepts a tuple of prefixes.
-        directive_prefixes = ("#const ", "#for ", "#if ", "#let ")
 
         while i < len(lines):
             line = lines[i]
-            stripped = line.lstrip()
 
-            if not stripped.startswith(directive_prefixes):
+            if self._directive(line) not in ("#const", "#for", "#if", "#let"):
                 result.append(line)
                 self._keep_line_provenance(new_prov, has_prov, i)
                 i += 1
@@ -2157,6 +2158,15 @@ class XVCLCompiler:
         """Convert global to variable with type conversion."""
         return self._from_global_conversion_lines(prefix, result_var, return_global, ret_type)
 
+    _DIRECTIVE_PATTERN = re.compile(
+        r"#(const|def|elif|else|enddef|endfor|endif|endinline|for|if|include|inline|let)(?:\s|$)"
+    )
+
+    def _directive(self, line: str) -> Optional[str]:
+        """Return the xvcl directive a line starts with, such as "#if", or None for VCL."""
+        match = self._DIRECTIVE_PATTERN.match(line.strip())
+        return "#" + match.group(1) if match else None
+
     _VCL_DECL_PATTERN = re.compile(
         r"^\s*(backend|sub|table|acl|director|penaltybox|ratecounter)\s+([\w.-]+)"
     )
@@ -2306,12 +2316,12 @@ class XVCLCompiler:
 
         depth = 0
         for i in range(start, endif_idx):
-            stripped = lines[i].strip()
-            if stripped.startswith("#if"):
+            directive = self._directive(lines[i])
+            if directive == "#if":
                 depth += 1
-            elif stripped == "#endif":
+            elif directive == "#endif":
                 depth -= 1
-            elif stripped == "#else" and depth == 1:
+            elif directive == "#else" and depth == 1:
                 else_idx = i
                 break
 
@@ -2334,11 +2344,10 @@ class XVCLCompiler:
         """Find the matching closing keyword for a block."""
         depth = 0
         for i in range(start, end):
-            stripped = lines[i].strip()
-            # Check for open keyword with word boundary (followed by space or end of line)
-            if stripped == open_keyword or stripped.startswith(open_keyword + " "):
+            directive = self._directive(lines[i])
+            if directive == open_keyword:
                 depth += 1
-            elif stripped == close_keyword:
+            elif directive == close_keyword:
                 depth -= 1
                 if depth == 0:
                     return i

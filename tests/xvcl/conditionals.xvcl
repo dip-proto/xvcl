@@ -30,3 +30,11 @@ set req.http.X-Version = "unknown";
 set req.http.X-Feature = "new";
 #endif
 #endif
+
+// A comment that starts with "#if" isn't a nested block
+#if DEBUG
+#if-none-match is handled elsewhere
+set req.http.X-Debug = "on";
+#else
+set req.http.X-Debug = "off";
+#endif

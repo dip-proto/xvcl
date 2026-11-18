@@ -1,0 +1,5 @@
+// ERROR: Invalid #if syntax
+// ERROR-AT: 3
+#if
+set req.http.A = "a";
+#endif

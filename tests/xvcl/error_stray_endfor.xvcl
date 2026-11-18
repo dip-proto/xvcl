@@ -1,0 +1,5 @@
+// ERROR: '#endfor' without a matching opening directive
+// ERROR-AT: 4
+set req.http.A = "1";
+#endfor
+set req.http.B = "2";
